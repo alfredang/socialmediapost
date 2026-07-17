@@ -1,0 +1,244 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  name              String?
+  role              String   @default("user") // user|admin
+  passwordHash      String
+  plan              String   @default("basic") // free|basic|professional|advanced|business
+  planInterval      String   @default("monthly") // monthly|yearly
+  calendarWeekStart String   @default("monday")
+  webhookUrl        String?
+  createdAt         DateTime @default(now())
+
+  profiles      Profile[]
+  apiKeys       ApiKey[]
+  apiLogs       ApiRequestLog[]
+  invoices      Invoice[]
+  notifications Notification[]
+  ffmpegJobs    FfmpegJob[]
+  teamInvites   TeamInvite[]
+  connectedApps ConnectedApp[]
+}
+
+model Profile {
+  id        String   @id @default(cuid())
+  name      String
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  socialAccounts SocialAccount[]
+  posts          Post[]
+  queueSetting   QueueSetting?
+  pipelines      Pipeline[]
+  snapshots      AnalyticsSnapshot[]
+
+  @@unique([accountId, name])
+}
+
+model SocialAccount {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  platform    String
+  handle      String
+  displayName String?
+  status      String   @default("connected") // connected|needs_reauth
+  createdAt   DateTime @default(now())
+
+  @@unique([profileId, platform])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  accountId  String
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  label      String    @default("Default Key")
+  hashedKey  String    @unique
+  prefix     String
+  status     String    @default("active") // active|revoked
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model ApiRequestLog {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  endpoint  String
+  method    String
+  status    Int
+  createdAt DateTime @default(now())
+}
+
+model Post {
+  id             String    @id @default(cuid())
+  requestId      String    @unique @default(cuid())
+  profileId      String
+  profile        Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  type           String // video|photos|text|document
+  title          String    @default("")
+  description    String    @default("")
+  firstComment   String    @default("")
+  mediaFiles     String    @default("[]") // JSON [{path,name,size,mime}]
+  status         String    @default("queued") // draft|scheduled|queued|publishing|published|failed|partial
+  source         String    @default("api") // api|manual|pipeline|csv
+  scheduledAt    DateTime?
+  idempotencyKey String?   @unique
+  createdAt      DateTime  @default(now())
+
+  targets PostTarget[]
+}
+
+model PostTarget {
+  id           String    @id @default(cuid())
+  postId       String
+  post         Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  platform     String
+  adaptedTitle String    @default("")
+  adaptedBody  String    @default("")
+  firstComment String    @default("")
+  status       String    @default("pending") // pending|publishing|published|failed
+  externalUrl  String?
+  externalId   String?
+  error        String?
+  publishedAt  DateTime?
+
+  metrics PostMetric[]
+}
+
+model PostMetric {
+  id        String     @id @default(cuid())
+  targetId  String
+  target    PostTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  views     Int        @default(0)
+  likes     Int        @default(0)
+  comments  Int        @default(0)
+  shares    Int        @default(0)
+  createdAt DateTime   @default(now())
+}
+
+model AnalyticsSnapshot {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  platform    String
+  date        DateTime
+  followers   Int      @default(0)
+  reach       Int      @default(0)
+  impressions Int      @default(0)
+  views       Int      @default(0)
+  likes       Int      @default(0)
+  comments    Int      @default(0)
+  shares      Int      @default(0)
+
+  @@unique([profileId, platform, date])
+}
+
+model QueueSetting {
+  id             String  @id @default(cuid())
+  profileId      String  @unique
+  profile        Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  timezone       String  @default("America/New_York")
+  activeDays     String  @default("[\"mon\",\"tue\",\"wed\",\"thu\",\"fri\",\"sat\",\"sun\"]")
+  slotTimes      String  @default("[\"09:00\",\"12:00\",\"17:00\"]")
+  maxPerSlot     Int     @default(1)
+}
+
+model Pipeline {
+  id         String   @id @default(cuid())
+  profileId  String
+  profile    Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  name       String
+  platforms  String   @default("[]")
+  timezone   String   @default("America/New_York")
+  activeDays String   @default("[\"mon\",\"wed\",\"fri\"]")
+  slotTimes  String   @default("[\"10:00\"]")
+  status     String   @default("active") // active|paused
+  loop       Boolean  @default(false)
+  lastRunAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  items PipelineItem[]
+}
+
+model PipelineItem {
+  id          String    @id @default(cuid())
+  pipelineId  String
+  pipeline    Pipeline  @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  order       Int
+  title       String    @default("")
+  description String    @default("")
+  mediaFiles  String    @default("[]")
+  type        String    @default("text")
+  status      String    @default("pending") // pending|published
+  publishedAt DateTime?
+}
+
+model Invoice {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  number    String   @unique
+  total     Float
+  status    String   @default("paid")
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  kind      String   @default("info") // success|error|info
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model FfmpegJob {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  command   String
+  minutes   Float    @default(0)
+  status    String   @default("completed")
+  createdAt DateTime @default(now())
+}
+
+model TeamInvite {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  email     String
+  role      String   @default("member")
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+}
+
+model ConnectedApp {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name      String
+  scopes    String   @default("[]")
+  createdAt DateTime @default(now())
+}
+
+model OtpCode {
+  id        String    @id @default(cuid())
+  email     String
+  code      String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}

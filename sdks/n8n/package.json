@@ -1,0 +1,13 @@
+{
+  "name": "n8n-nodes-socialpost",
+  "version": "1.0.0",
+  "description": "n8n community node for SocialPost — post to 22 social platforms in one step",
+  "license": "MIT",
+  "keywords": ["n8n-community-node-package", "social media", "socialpost"],
+  "main": "index.js",
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": ["credentials/SocialPostApi.credentials.js"],
+    "nodes": ["nodes/SocialPost/SocialPost.node.js"]
+  }
+}

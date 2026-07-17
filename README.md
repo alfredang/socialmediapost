@@ -1,36 +1,107 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SocialPost 🛫
 
-## Getting Started
+**One API call to post on every social platform.** A full-stack social media publishing platform — post videos, photos, text and documents to **22 networks** (TikTok, Instagram, YouTube, LinkedIn, Facebook, X, Threads, Pinterest, Reddit, Bluesky, Mastodon, Telegram, Discord, Slack, Dev.to, Hashnode, WordPress and more) from a single REST API, dashboard, SDK, or AI agent.
 
-First, run the development server:
+![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js) ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react) ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript) ![Tailwind](https://img.shields.io/badge/Tailwind-4-38BDF8?logo=tailwindcss) ![Prisma](https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma) ![SQLite](https://img.shields.io/badge/SQLite-dev.db-003B57?logo=sqlite)
+
+![SocialPost — landing page](screenshot.png)
+
+## Features
+
+- **One API call, every platform** — `POST /api/upload` (video), `/api/upload_video` (alias), `/api/upload_photos`, `/api/upload_text`, `/api/uploadposts/upload-document` (LinkedIn docs)
+- **Auto-adapts content per platform** — grapheme-aware truncation (emoji count correctly 🚀), hashtags → first comment on Instagram, X weighted 280, per-platform `<platform>_title` overrides
+- **Scheduling & automation** — ISO-8601 scheduling, per-profile posting queues (timezone, active days, slots), calendar (month/week/day), recurring **content pipelines**, in-process 30s scheduler
+- **Analytics & metrics API** — followers/reach/impressions/engagement per platform, time-series charts (Recharts), CSV export, per-post metrics
+- **Whitelabel** — profiles API (`user` param), JWT connect-links so your customers link accounts under your brand
+- **Full API management** — named API keys (hashed, shown once), request logging, per-plan quotas (429), FFmpeg processing quota, idempotency keys
+- **Auth** — Google OAuth + email magic-link/OTP (passwordless), like modern SaaS
+- **AI copy assistant** — captions + hashtags (uses `ANTHROPIC_API_KEY` if set, offline heuristic otherwise)
+- **Dark/light theme**, sidebar dashboard, notifications, team management, simulated billing with invoices
+
+> Platform connectors are **simulated** behind a clean `publish()` adapter (`src/lib/platforms.ts`) — drop in each network's real API call to go live. Everything else (auth, quotas, scheduling, queues, pipelines, analytics storage, whitelabel JWTs) is fully functional.
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npx prisma migrate dev      # creates prisma/dev.db
+npx prisma db seed          # demo + admin accounts, sample data
+npm run dev                 # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Sign in:** enter your email on `/login` → in dev mode the 6-digit code is shown on screen (no SMTP needed). Seeded accounts: `demo@example.com` and `angch@tertiaryinfotech.com` (admin).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## The lead magnet
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+curl \
+  -H 'Authorization: Apikey your-api-key-here' \
+  -F 'video=@/path/to/your/video.mp4' \
+  -F 'title="Your Awesome Title 🚀"' \
+  -F 'user="your_profile_user"' \
+  -F 'platform[]=tiktok' \
+  -F 'platform[]=instagram' \
+  -F 'platform[]=youtube' \
+  -X POST http://localhost:3000/api/upload
+```
 
-## Learn More
+Response: per-platform results with live post URLs. Add `scheduled_date` to schedule, `first_comment` for an auto first comment, `autogenerate=true` for AI copy.
 
-To learn more about Next.js, take a look at the following resources:
+## API surface
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Area | Endpoints |
+|------|-----------|
+| Upload | `POST /api/upload` · `/api/upload_video` · `/api/upload_photos` · `/api/upload_text` · `/api/uploadposts/upload-document` |
+| Manage | `GET /api/uploadposts/status` · `GET /api/uploadposts/history` · `GET/PATCH/DELETE /api/uploadposts/schedule` |
+| Queue | `GET/PUT /api/uploadposts/queue/settings` · `POST /api/uploadposts/add_to_queue` |
+| Analytics | `GET /api/analytics/{profile}` · `GET /api/uploadposts/post-analytics/{id}` · `GET /api/uploadposts/platform-metrics` · `GET /api/uploadposts/media` |
+| Whitelabel | `GET /api/uploadposts/me` · `POST/GET/DELETE /api/uploadposts/users` · `POST .../users/generate-jwt` · `GET .../users/validate-jwt` |
+| Processing | `POST /api/uploadposts/ffmpeg/job` · `GET /api/uploadposts/ffmpeg/usage` |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Full docs with parameter tables live at **`/docs`** in the app.
 
-## Deploy on Vercel
+## SDKs & integrations (`sdks/`)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Package | What it is |
+|---------|------------|
+| [`sdks/python`](sdks/python) | Python SDK (`pip install -e sdks/python`) — `SocialPostClient` |
+| [`sdks/node`](sdks/node) | Node.js SDK (zero-dependency, Node ≥18) — `socialpost-sdk` |
+| [`sdks/n8n`](sdks/n8n) | n8n community node + credentials |
+| [`sdks/vscode`](sdks/vscode) | VS Code extension — post a selection or file from the editor |
+| [`sdks/mcp`](sdks/mcp) | MCP server — lets **GitHub Copilot, Claude, Cursor** post for you |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Project structure
+
+```
+src/
+  app/                    # Next.js App Router
+    api/                  # Public API + auth + internal dashboard routes
+    (dashboard)/          # users, upload, pipelines, calendar(+queue), history,
+                          # analytics, api-keys, pricing, profile(+invoices),
+                          # team, support, docs, connected-apps
+    login/  connect/      # passwordless login · whitelabel connect page
+    page.tsx              # landing page (curl lead magnet)
+  lib/                    # platforms registry/adapters, publish engine, queue,
+                          # scheduler, sessions, apikeys, plans, AI copy
+  components/             # sidebar nav, theme toggle, platform icons, etc.
+prisma/                   # schema, migrations, seed
+sdks/                     # python · node · n8n · vscode · mcp
+tests/post-course.test.mjs  # e2e test: post a course announcement to LinkedIn+Facebook
+design-system/            # persisted UI design system (MASTER.md)
+```
+
+## Testing
+
+```bash
+npm run dev &                       # start the server
+node tests/post-course.test.mjs    # 9 end-to-end assertions
+```
+
+## Acknowledgements
+
+- Feature set inspired by multi-platform posting APIs; UI is an original design (dark-first, emerald "code" theme, Space Grotesk + JetBrains Mono)
+- Built with [Next.js](https://nextjs.org), [Prisma](https://prisma.io), [Tailwind CSS](https://tailwindcss.com), [Recharts](https://recharts.org)
+
+---
+
+Powered by [Tertiary Infotech Academy Pte Ltd](https://www.tertiaryinfotech.com/)

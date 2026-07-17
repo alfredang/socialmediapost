@@ -1,0 +1,33 @@
+{
+  "name": "socialpost-vscode",
+  "displayName": "SocialPost",
+  "description": "Post to 22 social platforms from VS Code — publish a selection as a text post or upload a media file via the SocialPost API.",
+  "version": "1.0.0",
+  "publisher": "socialpost",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "socialpost.postSelection", "title": "SocialPost: Post Selection as Text" },
+      { "command": "socialpost.uploadCurrentFile", "title": "SocialPost: Upload Current File (video/photo)" },
+      { "command": "socialpost.showHistory", "title": "SocialPost: Show Upload History" }
+    ],
+    "configuration": {
+      "title": "SocialPost",
+      "properties": {
+        "socialpost.apiKey": { "type": "string", "default": "", "description": "Your SocialPost API key" },
+        "socialpost.baseUrl": { "type": "string", "default": "http://localhost:3000", "description": "SocialPost server base URL" },
+        "socialpost.defaultUser": { "type": "string", "default": "", "description": "Default profile (the `user` API param)" },
+        "socialpost.defaultPlatforms": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["linkedin", "x"],
+          "description": "Default platforms to post to"
+        }
+      }
+    }
+  }
+}
