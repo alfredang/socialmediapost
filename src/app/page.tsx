@@ -197,8 +197,8 @@ export default async function LandingPage() {
             <div className="mt-8 grid gap-4 sm:grid-cols-3">
               {[
                 ["Free", "$0", "1 profile · 10 uploads/mo"],
-                ["Basic", "$16/mo", "5 profiles · 100 uploads/mo"],
-                ["Professional", "$33/mo", "25 profiles · 500 uploads/mo · team"],
+                ["Basic", "$15/mo", "5 profiles · 100 uploads/mo"],
+                ["Professional", "$30/mo", "25 profiles · 500 uploads/mo · team"],
               ].map(([name, price, blurb]) => (
                 <div key={name} className={`card p-6 ${name === "Professional" ? "border-emerald-500/60 border-2" : ""}`}>
                   <p className="font-mono text-xs uppercase tracking-widest text-slate-400">{name}</p>

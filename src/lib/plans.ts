@@ -28,8 +28,8 @@ export const PLANS: Plan[] = [
   {
     id: "basic",
     name: "Basic",
-    monthly: 16,
-    yearly: 16 * 12 * 0.5 / 12, // shown as $16/mo, $192 billed annually
+    monthly: 15,
+    yearly: 15, // $15/mo, $180 billed annually
     profiles: 5,
     uploadsPerMonth: 100,
     ffmpegMinutes: 300,
@@ -39,8 +39,8 @@ export const PLANS: Plan[] = [
   {
     id: "professional",
     name: "Professional",
-    monthly: 33,
-    yearly: 33,
+    monthly: 30,
+    yearly: 30,
     profiles: 25,
     uploadsPerMonth: 500,
     ffmpegMinutes: 1000,
@@ -74,8 +74,8 @@ export const PLANS: Plan[] = [
 
 export const PLAN_PRICING: Record<PlanId, { monthly: number; annualTotal: number; saveYr: number }> = {
   free: { monthly: 0, annualTotal: 0, saveYr: 0 },
-  basic: { monthly: 16, annualTotal: 192, saveYr: 96 },
-  professional: { monthly: 33, annualTotal: 400, saveYr: 200 },
+  basic: { monthly: 15, annualTotal: 180, saveYr: 90 },
+  professional: { monthly: 30, annualTotal: 360, saveYr: 180 },
   advanced: { monthly: 118, annualTotal: 1411, saveYr: 353 },
   business: { monthly: 350, annualTotal: 4205, saveYr: 1051 },
 };
