@@ -1,0 +1,10 @@
+.dockerignore
+node_modules
+.next
+.git
+uploads
+*.png
+.env*
+.playwright-mcp
+design-system
+.claude
