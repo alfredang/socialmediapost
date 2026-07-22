@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PlatformIcon } from "@/components/PlatformIcon";
 import { PLATFORMS } from "@/lib/platforms";
 
@@ -19,6 +19,8 @@ interface ProfileRow {
 }
 
 const UNAVAILABLE = new Set(["reddit"]);
+// Platforms that connect via a real OAuth redirect instead of the simulated prompt.
+const OAUTH_PLATFORMS = new Set(["instagram"]);
 
 export function UsersClient({
   plan,
@@ -28,10 +30,29 @@ export function UsersClient({
   profiles: ProfileRow[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  // Surface the Instagram OAuth redirect result (?ig=...) then clean the URL.
+  useEffect(() => {
+    const ig = searchParams.get("ig");
+    if (!ig) return;
+    const messages: Record<string, { kind: "ok" | "err"; text: string }> = {
+      connected: { kind: "ok", text: "Instagram account connected." },
+      demo: { kind: "ok", text: "Demo Instagram account connected (no OAuth credentials configured)." },
+      denied: { kind: "err", text: "Instagram authorization was denied." },
+      failed: { kind: "err", text: "Instagram connection failed. Please try again." },
+      "invalid-state": { kind: "err", text: "Instagram connection expired. Please try again." },
+      "profile-not-found": { kind: "err", text: "Profile not found." },
+    };
+    setNotice(messages[ig] ?? null);
+    router.replace("/users");
+    router.refresh();
+  }, [searchParams, router]);
 
   async function addProfile() {
     setBusy(true);
@@ -48,7 +69,16 @@ export function UsersClient({
     router.refresh();
   }
 
-  async function connect(profileId: string, platform: string, currentName: string) {
+  function connect(profileId: string, platform: string, currentName: string) {
+    // Real OAuth platforms redirect out to the provider and come back to /users.
+    if (OAUTH_PLATFORMS.has(platform)) {
+      window.location.href = `/api/auth/${platform}?profileId=${encodeURIComponent(profileId)}`;
+      return;
+    }
+    return connectSimulated(profileId, platform, currentName);
+  }
+
+  async function connectSimulated(profileId: string, platform: string, currentName: string) {
     const handle = window.prompt(`Connect ${platform}: enter the account handle`, currentName);
     if (handle === null) return;
     const res = await fetch("/api/internal/social-accounts", {
@@ -100,6 +130,17 @@ export function UsersClient({
 
       {error && (
         <p className="mt-4 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</p>
+      )}
+      {notice && (
+        <p
+          className={`mt-4 rounded-lg border px-3 py-2 text-sm ${
+            notice.kind === "ok"
+              ? "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300"
+              : "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300"
+          }`}
+        >
+          {notice.text}
+        </p>
       )}
       {shareLink && (
         <div className="mt-4 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 px-3 py-2 text-sm text-green-800 dark:text-green-300 break-all">

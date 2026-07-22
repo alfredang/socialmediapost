@@ -64,3 +64,23 @@ export async function verifyProfileJwt(token: string) {
     return null;
   }
 }
+
+// Short-lived CSRF `state` for the Instagram connect OAuth round-trip.
+// Binds the callback to the signed-in account + the profile being connected.
+export async function signOAuthState(accountId: string, profileId: string) {
+  return new SignJWT({ sub: accountId, profileId, kind: "oauth-state" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(secret);
+}
+
+export async function verifyOAuthState(token: string) {
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    if (payload.kind !== "oauth-state") return null;
+    return { accountId: payload.sub as string, profileId: payload.profileId as string };
+  } catch {
+    return null;
+  }
+}

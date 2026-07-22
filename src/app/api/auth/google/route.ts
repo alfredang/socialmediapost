@@ -3,14 +3,17 @@ import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/session";
+import { appBaseUrl } from "@/lib/base-url";
 
 // GET /api/auth/google — starts Google OAuth.
 // With GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET set: real OAuth redirect.
 // Without (local demo): signs in immediately as a demo Google user.
 export async function GET(req: NextRequest) {
+  const base = appBaseUrl(req.nextUrl.origin);
+
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (clientId) {
-    const redirectUri = `${req.nextUrl.origin}/api/auth/google/callback`;
+    const redirectUri = `${base}/api/auth/google/callback`;
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     url.searchParams.set("client_id", clientId);
     url.searchParams.set("redirect_uri", redirectUri);
@@ -33,5 +36,5 @@ export async function GET(req: NextRequest) {
     });
   }
   await createSession(account.id);
-  return NextResponse.redirect(new URL("/users?google=demo", req.url));
+  return NextResponse.redirect(new URL("/users?google=demo", base));
 }

@@ -113,9 +113,9 @@ async function main() {
   // 60 days of analytics history per connected platform
   const existingSnaps = await db.analyticsSnapshot.count({ where: { profileId: profile.id } });
   if (existingSnaps === 0) {
-    const base: Record<string, number> = { tiktok: 3400, instagram: 5200, linkedin: 2900, youtube: 8100, facebook: 4400 };
+    const base: Record<string, number> = { tiktok: 3400, instagram: 5200, linkedin: 2900, youtube: 8100, facebook: 4400, x: 2100 };
     for (const platform of Object.keys(PLATFORM_HANDLES)) {
-      let followers = base[platform];
+      let followers = base[platform] ?? 1000;
       for (let i = 60; i >= 0; i--) {
         const date = new Date();
         date.setUTCHours(0, 0, 0, 0);

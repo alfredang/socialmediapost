@@ -1,6 +1,18 @@
 import { db } from "./db";
 import { adaptContent, publishToPlatform, PLATFORM_MAP, PostType, AdaptInput } from "./platforms";
 import { StoredFile } from "./upload";
+import { publishToInstagram } from "./instagram";
+
+// Builds a public URL Instagram's servers can fetch a stored media file from.
+function publicMediaUrl(file: StoredFile): string {
+  const base = process.env.PUBLIC_BASE_URL;
+  if (!base) {
+    throw new Error(
+      "PUBLIC_BASE_URL is not set — Instagram needs a public https URL to fetch your media"
+    );
+  }
+  return `${base.replace(/\/$/, "")}/api/media/${file.path}`;
+}
 
 export interface CreatePostInput {
   profileId: string;
@@ -92,13 +104,31 @@ export async function publishPost(postId: string) {
       if (!def.supports.includes(post.type as PostType)) {
         throw new Error(`${def.name} does not support ${post.type} posts`);
       }
-      const { url, externalId } = await publishToPlatform(target.platform, account.handle, {
-        platform: target.platform,
-        title: target.adaptedTitle,
-        body: target.adaptedBody,
-        firstComment: target.firstComment,
-        warnings: [],
-      });
+
+      let url: string;
+      let externalId: string;
+      // Real Instagram accounts (connected via OAuth) carry an access token —
+      // publish through the live API. Demo/simulated accounts fall back below.
+      if (target.platform === "instagram" && account.accessToken && account.externalUserId) {
+        const media = JSON.parse(post.mediaFiles) as StoredFile[];
+        const caption = [target.adaptedTitle, target.adaptedBody].filter(Boolean).join("\n\n");
+        ({ url, externalId } = await publishToInstagram({
+          igUserId: account.externalUserId,
+          accessToken: account.accessToken,
+          type: post.type === "video" ? "video" : "photos",
+          mediaUrls: media.map(publicMediaUrl),
+          caption,
+          firstComment: target.firstComment,
+        }));
+      } else {
+        ({ url, externalId } = await publishToPlatform(target.platform, account.handle, {
+          platform: target.platform,
+          title: target.adaptedTitle,
+          body: target.adaptedBody,
+          firstComment: target.firstComment,
+          warnings: [],
+        }));
+      }
       await db.postTarget.update({
         where: { id: target.id },
         data: { status: "published", externalUrl: url, externalId, publishedAt: new Date(), error: null },

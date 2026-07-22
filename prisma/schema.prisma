@@ -46,14 +46,17 @@ model Profile {
 }
 
 model SocialAccount {
-  id          String   @id @default(cuid())
-  profileId   String
-  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  platform    String
-  handle      String
-  displayName String?
-  status      String   @default("connected") // connected|needs_reauth
-  createdAt   DateTime @default(now())
+  id             String    @id @default(cuid())
+  profileId      String
+  profile        Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  platform       String
+  handle         String
+  displayName    String?
+  status         String    @default("connected") // connected|needs_reauth
+  externalUserId String? // platform account id (e.g. Instagram user id)
+  accessToken    String? // OAuth token; null for simulated/demo connections
+  tokenExpiresAt DateTime? // when accessToken expires (long-lived IG token ~60d)
+  createdAt      DateTime  @default(now())
 
   @@unique([profileId, platform])
 }
