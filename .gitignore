@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
+# dependencies (root and nested, e.g. sdks/*)
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -22,6 +22,8 @@
 
 # misc
 .DS_Store
+Thumbs.db
+Desktop.ini
 *.pem
 
 # debug
@@ -39,8 +41,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-.env
 uploads/
 prisma/dev.db
+prisma/*.db-journal
 .playwright-mcp/
 *.log
+
+certificates
+
+# Claude Code harness (skills installed from skills-lock.json, agent memory)
+.agents/
+memory/
+.claude/settings.local.json
+
+# python
+__pycache__/
+
+# third-party skills come from skills-lock.json; only project-specific skills are tracked
+.claude/skills/*
+!.claude/skills/frontend-design/
+!.claude/skills/readme-sync/
