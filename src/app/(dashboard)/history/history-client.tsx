@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PlatformIcon } from "@/components/PlatformIcon";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Select } from "@/components/Select";
 import { PLATFORM_MAP } from "@/lib/platforms";
 
 interface Row {
@@ -80,18 +81,20 @@ export function HistoryClient({ rows }: { rows: Row[] }) {
 
       {showFilters && (
         <div className="mt-4 flex flex-wrap gap-3">
-          <select className="input w-auto" value={platform} onChange={(e) => setPlatform(e.target.value)} aria-label="Filter by platform">
-            <option value="all">All platforms</option>
-            {platforms.map((p) => (
-              <option key={p} value={p}>{PLATFORM_MAP[p]?.name ?? p}</option>
-            ))}
-          </select>
-          <select className="input w-auto" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
-            <option value="all">All statuses</option>
-            {["published", "failed", "pending", "scheduled", "draft"].map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          <Select
+            className="w-44"
+            ariaLabel="Filter by platform"
+            value={platform}
+            onChange={setPlatform}
+            options={[{ value: "all", label: "All platforms" }, ...platforms.map((p) => ({ value: p, label: PLATFORM_MAP[p]?.name ?? p }))]}
+          />
+          <Select
+            className="w-44"
+            ariaLabel="Filter by status"
+            value={status}
+            onChange={setStatus}
+            options={[{ value: "all", label: "All statuses" }, ...["published", "failed", "pending", "scheduled", "draft"].map((s) => ({ value: s, label: s }))]}
+          />
         </div>
       )}
 

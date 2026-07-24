@@ -1,4 +1,4 @@
-import { getSessionAccount } from "@/lib/session";
+import { requireSessionAccount } from "@/lib/session";
 import { db } from "@/lib/db";
 import { CalendarClient } from "./calendar-client";
 
@@ -6,7 +6,7 @@ export const metadata = { title: "Calendar" };
 export const dynamic = "force-dynamic";
 
 export default async function CalendarPage() {
-  const account = (await getSessionAccount())!;
+  const account = await requireSessionAccount();
   const posts = await db.post.findMany({
     where: {
       profile: { accountId: account.id },

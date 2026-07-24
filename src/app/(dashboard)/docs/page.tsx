@@ -209,9 +209,18 @@ GET  /api/uploadposts/users/validate-jwt?token=...`} />
         </Section>
 
         <Section id="ffmpeg" title="FFmpeg Processing">
-          <CodeBlock code={`# Submit a processing job (quota by plan)
+          <CodeBlock code={`# Submit a processing job — named operation, not a raw ffmpeg command
 POST /api/uploadposts/ffmpeg/job
-{ "command": "-i input.mp4 -vf scale=1080:1920 output.mp4", "estimated_minutes": 2 }
+{ "media_url": "https://…/clip.mp4", "operation": "scale",
+  "params": { "width": 1080, "height": 1920, "mode": "fill" } }
+
+# …or post the file directly
+curl -X POST /api/uploadposts/ffmpeg/job \\
+  -H "Authorization: ApiKey $KEY" \\
+  -F file=@clip.mp4 -F operation=to_vertical
+
+# Operations: scale · trim · to_vertical · extract_audio · thumbnail · transcode
+# Returns { output_url, minutes_charged } — quota is billed on real processing time.
 
 # Usage / quota
 GET /api/uploadposts/ffmpeg/usage`} />

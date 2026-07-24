@@ -1,4 +1,4 @@
-import { getSessionAccount } from "@/lib/session";
+import { requireSessionAccount } from "@/lib/session";
 import { db } from "@/lib/db";
 import { getPlan } from "@/lib/plans";
 import { ApiKeysClient } from "./api-keys-client";
@@ -7,7 +7,7 @@ export const metadata = { title: "API Keys" };
 export const dynamic = "force-dynamic";
 
 export default async function ApiKeysPage() {
-  const account = (await getSessionAccount())!;
+  const account = await requireSessionAccount();
   const plan = getPlan(account.plan);
 
   const monthStart = new Date();

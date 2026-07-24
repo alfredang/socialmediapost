@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { PlatformIcon } from "@/components/PlatformIcon";
+import { Select } from "@/components/Select";
 import { PLATFORM_MAP } from "@/lib/platforms";
 
 interface CalEvent {
@@ -127,18 +128,20 @@ export function CalendarClient({
                 </button>
               ))}
             </div>
-            <select className="input w-auto py-1.5" value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} aria-label="Filter platforms">
-              <option value="all">Platforms</option>
-              {allPlatforms.map((p) => (
-                <option key={p} value={p}>{PLATFORM_MAP[p]?.name ?? p}</option>
-              ))}
-            </select>
-            <select className="input w-auto py-1.5" value={profileFilter} onChange={(e) => setProfileFilter(e.target.value)} aria-label="Filter profiles">
-              <option value="all">All Profiles</option>
-              {profiles.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
+            <Select
+              className="w-40"
+              ariaLabel="Filter platforms"
+              value={platformFilter}
+              onChange={setPlatformFilter}
+              options={[{ value: "all", label: "Platforms" }, ...allPlatforms.map((p) => ({ value: p, label: PLATFORM_MAP[p]?.name ?? p }))]}
+            />
+            <Select
+              className="w-40"
+              ariaLabel="Filter profiles"
+              value={profileFilter}
+              onChange={setProfileFilter}
+              options={[{ value: "all", label: "All Profiles" }, ...profiles.map((p) => ({ value: p, label: p }))]}
+            />
             <Link href="/upload" className="btn-primary py-1.5">+ Create</Link>
           </div>
         </div>

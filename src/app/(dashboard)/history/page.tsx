@@ -1,4 +1,4 @@
-import { getSessionAccount } from "@/lib/session";
+import { requireSessionAccount } from "@/lib/session";
 import { db } from "@/lib/db";
 import { HistoryClient } from "./history-client";
 
@@ -6,7 +6,7 @@ export const metadata = { title: "Upload History" };
 export const dynamic = "force-dynamic";
 
 export default async function HistoryPage() {
-  const account = (await getSessionAccount())!;
+  const account = await requireSessionAccount();
   const targets = await db.postTarget.findMany({
     where: { post: { profile: { accountId: account.id } } },
     include: {

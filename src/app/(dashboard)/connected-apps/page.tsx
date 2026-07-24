@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { getSessionAccount } from "@/lib/session";
+import { requireSessionAccount } from "@/lib/session";
 import { db } from "@/lib/db";
 
 export const metadata = { title: "Connected Apps" };
 export const dynamic = "force-dynamic";
 
 export default async function ConnectedAppsPage() {
-  const account = (await getSessionAccount())!;
+  const account = await requireSessionAccount();
   const apps = await db.connectedApp.findMany({ where: { accountId: account.id } });
 
   return (
