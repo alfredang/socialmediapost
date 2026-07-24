@@ -10,6 +10,8 @@ const URL_ERRORS: Record<string, string> = {
   "missing-token": "That magic link is incomplete. Request a new code.",
   "google-denied": "Google sign-in was cancelled.",
   "google-failed": "Google sign-in failed. Please try again.",
+  "google-not-configured":
+    "Google sign-in isn't configured on this server — use an email code or password instead.",
 };
 
 function LoginForm() {
@@ -18,8 +20,6 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [step, setStep] = useState<"email" | "code">("email");
   const [code, setCode] = useState("");
-  const [devCode, setDevCode] = useState<string | null>(null);
-  const [devLink, setDevLink] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(() => {
     const e = params.get("error");
@@ -50,8 +50,6 @@ function LoginForm() {
     const data = await res.json().catch(() => ({ success: false, error: "Something went wrong. Please try again." }));
     setBusy(false);
     if (!data.success) return setError(data.error);
-    setDevCode(data.dev_code ?? null);
-    setDevLink(data.dev_magic_link ?? null);
     setMessage(data.message ?? null);
     setCode("");
     setResendIn(30);
@@ -216,19 +214,9 @@ function LoginForm() {
             <p className="text-sm text-slate-600 dark:text-slate-300">
               We sent a 6-digit code and a magic link to <strong>{email}</strong>.
             </p>
-            {message && !devCode && (
+            {message && (
               <p className="mt-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm text-slate-600 dark:text-slate-300">
                 {message}
-              </p>
-            )}
-            {devCode && (
-              <p className="mt-2 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
-                Dev mode (no SMTP configured) — your code is <strong className="tracking-widest">{devCode}</strong>
-                {devLink && (
-                  <>
-                    {" "}or use the <a className="underline" href={devLink}>magic link</a>.
-                  </>
-                )}
               </p>
             )}
             <label className="label mt-4" htmlFor="code">Enter code</label>
@@ -260,10 +248,6 @@ function LoginForm() {
           </>
         )}
       </div>
-
-      <p className="mt-6 text-sm text-slate-500 dark:text-slate-400">
-        Demo account: <code className="font-mono">demo@example.com</code> (request a code)
-      </p>
     </div>
   );
 }
