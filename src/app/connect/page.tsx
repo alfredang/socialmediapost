@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { verifyProfileJwt } from "@/lib/session";
+import { db } from "@/lib/db";
 import { LogoMark } from "@/components/Logo";
 import { ConnectClient } from "./connect-client";
 
@@ -14,6 +16,17 @@ export default async function ConnectPage({
   const { token } = await searchParams;
   const payload = token ? await verifyProfileJwt(token) : null;
 
+  // Which platforms this profile has already OAuth-connected, so the page shows
+  // real state rather than only what happened in this browser tab.
+  const profileRow = payload
+    ? await db.profile.findUnique({
+        where: { accountId_name: { accountId: payload.accountId, name: payload.profile } },
+        include: { socialAccounts: { select: { platform: true, status: true } } },
+      })
+    : null;
+  const connected =
+    profileRow?.socialAccounts.filter((a) => a.status === "connected").map((a) => a.platform) ?? [];
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center px-4 py-12">
       <LogoMark size={48} />
@@ -26,7 +39,9 @@ export default async function ConnectPage({
             </p>
           </>
         ) : (
-          <ConnectClient token={token!} profile={payload.profile} />
+          <Suspense>
+            <ConnectClient token={token!} profile={payload.profile} connected={connected} />
+          </Suspense>
         )}
       </div>
     </div>

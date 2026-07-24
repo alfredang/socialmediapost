@@ -7,8 +7,14 @@
 // then put the Instagram app ID/secret in INSTAGRAM_CLIENT_ID / INSTAGRAM_CLIENT_SECRET.
 // Add {origin}/api/auth/instagram/callback as a valid OAuth Redirect URI in the app.
 
-// Scopes: basic profile read + content publishing.
-const SCOPES = ["instagram_business_basic", "instagram_business_content_publish"];
+// Scopes: basic profile read + content publishing + insights (analytics).
+// manage_insights is what makes reach/views readable; without it the sync still
+// works but records only the metrics basic access exposes.
+const SCOPES = [
+  "instagram_business_basic",
+  "instagram_business_content_publish",
+  "instagram_business_manage_insights",
+];
 
 export function instagramConfigured(): boolean {
   return Boolean(process.env.INSTAGRAM_CLIENT_ID && process.env.INSTAGRAM_CLIENT_SECRET);
@@ -100,6 +106,102 @@ export async function fetchProfile(accessToken: string): Promise<IgProfile> {
     throw new Error(data.error?.message || "Failed to read Instagram profile");
   }
   return { user_id: String(data.user_id), username: data.username };
+}
+
+// ── Analytics ──────────────────────────────────────────────────────────────
+// Every metric below is read straight from the Graph API. Anything the token's
+// scopes don't cover is left undefined rather than guessed at — see
+// src/lib/analytics-sync.ts.
+
+// Sums the values Instagram returns for a day-period insight metric.
+function insightValue(data: { data?: { values?: { value?: number }[] }[] }): number | undefined {
+  const values = data.data?.[0]?.values;
+  if (!values?.length) return undefined;
+  const total = values.reduce((sum, v) => sum + (v.value ?? 0), 0);
+  return Number.isFinite(total) ? total : undefined;
+}
+
+export interface IgAccountMetrics {
+  followers?: number;
+  reach?: number;
+  views?: number;
+}
+
+// Account-level daily numbers for one connected Instagram account.
+export async function fetchAccountMetrics(
+  igUserId: string,
+  accessToken: string
+): Promise<IgAccountMetrics> {
+  const out: IgAccountMetrics = {};
+
+  try {
+    const me = await igGet("me", { fields: "followers_count", access_token: accessToken });
+    if (typeof me.followers_count === "number") out.followers = me.followers_count;
+  } catch {
+    /* followers_count needs a professional account — leave undefined */
+  }
+
+  // reach and views are separate calls so one unsupported metric doesn't void
+  // the other (Instagram rejects the whole request on any bad metric name).
+  for (const metric of ["reach", "views"] as const) {
+    try {
+      const data = await igGet(`${igUserId}/insights`, {
+        metric,
+        period: "day",
+        access_token: accessToken,
+      });
+      const value = insightValue(data);
+      if (value !== undefined) out[metric] = value;
+    } catch {
+      /* insights scope not granted, or metric unavailable for this account */
+    }
+  }
+
+  return out;
+}
+
+export interface IgMediaMetrics {
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+}
+
+// Per-post numbers. like_count/comments_count come with basic access; views and
+// shares need the insights scope.
+export async function fetchMediaMetrics(
+  mediaId: string,
+  accessToken: string
+): Promise<IgMediaMetrics> {
+  const out: IgMediaMetrics = {};
+
+  try {
+    const media = await igGet(mediaId, {
+      fields: "like_count,comments_count",
+      access_token: accessToken,
+    });
+    if (typeof media.like_count === "number") out.likes = media.like_count;
+    if (typeof media.comments_count === "number") out.comments = media.comments_count;
+  } catch {
+    /* media deleted or not readable */
+  }
+
+  try {
+    const data = await igGet(`${mediaId}/insights`, {
+      metric: "views,shares",
+      access_token: accessToken,
+    });
+    for (const entry of (data.data ?? []) as { name?: string; values?: { value?: number }[] }[]) {
+      const value = entry.values?.[0]?.value;
+      if (typeof value !== "number") continue;
+      if (entry.name === "views") out.views = value;
+      if (entry.name === "shares") out.shares = value;
+    }
+  } catch {
+    /* insights scope not granted */
+  }
+
+  return out;
 }
 
 // ── Content Publishing ─────────────────────────────────────────────────────

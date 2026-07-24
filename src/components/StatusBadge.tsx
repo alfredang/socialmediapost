@@ -14,11 +14,13 @@ const STYLES: Record<string, string> = {
   draft: "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
   paused: "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
   needs_reauth: "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800",
+  pending_page: "bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800",
 };
 
 const LABELS: Record<string, string> = {
   published: "Success",
   needs_reauth: "Reauth required",
+  pending_page: "Choose a Page",
   partial: "Partial",
 };
 
