@@ -52,10 +52,12 @@ model SocialAccount {
   platform       String
   handle         String
   displayName    String?
-  status         String    @default("connected") // connected|needs_reauth
-  externalUserId String? // platform account id (e.g. Instagram user id)
+  status         String    @default("connected") // connected|needs_reauth|pending_page (FB awaiting Page pick)
+  externalUserId String? // platform account id (e.g. Instagram user id, Facebook Page id, TikTok open_id)
   accessToken    String? // OAuth token; null for simulated/demo connections
-  tokenExpiresAt DateTime? // when accessToken expires (long-lived IG token ~60d)
+  tokenExpiresAt DateTime? // when accessToken expires (long-lived IG token ~60d, TikTok ~24h)
+  refreshToken   String? // OAuth refresh token (TikTok 365d); null when the platform has none
+  meta           String? // JSON platform extras (e.g. Facebook: {userToken,pages}, TikTok: {refreshExpiresAt})
   createdAt      DateTime  @default(now())
 
   @@unique([profileId, platform])
@@ -110,6 +112,10 @@ model PostTarget {
   adaptedTitle String    @default("")
   adaptedBody  String    @default("")
   firstComment String    @default("")
+  // Per-platform content overrides. Null → use the post's base type/mediaFiles.
+  // Lets one post publish e.g. a video to TikTok and photos to Instagram.
+  type         String?
+  mediaFiles   String?   // JSON StoredFile[]
   status       String    @default("pending") // pending|publishing|published|failed
   externalUrl  String?
   externalId   String?
@@ -130,19 +136,24 @@ model PostMetric {
   createdAt DateTime   @default(now())
 }
 
+// One row per profile+platform+day, written ONLY by the real platform sync in
+// src/lib/analytics-sync.ts. Metrics are nullable on purpose: null means "this
+// platform does not expose that number to us", which is different from a
+// measured zero. Nothing here is ever estimated or generated.
 model AnalyticsSnapshot {
   id          String   @id @default(cuid())
   profileId   String
   profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
   platform    String
   date        DateTime
-  followers   Int      @default(0)
-  reach       Int      @default(0)
-  impressions Int      @default(0)
-  views       Int      @default(0)
-  likes       Int      @default(0)
-  comments    Int      @default(0)
-  shares      Int      @default(0)
+  followers   Int?
+  reach       Int?
+  impressions Int?
+  views       Int?
+  likes       Int?
+  comments    Int?
+  shares      Int?
+  collectedAt DateTime @default(now())
 
   @@unique([profileId, platform, date])
 }
@@ -181,8 +192,11 @@ model PipelineItem {
   order       Int
   title       String    @default("")
   description String    @default("")
-  mediaFiles  String    @default("[]")
-  type        String    @default("text")
+  mediaFiles  String    @default("[]") // base media (default for platforms w/o override)
+  type        String    @default("text") // base type
+  // Per-platform content: JSON { [platform]: { type, media: StoredFile[] } }.
+  // A platform absent here uses the base type/mediaFiles above.
+  perPlatform String    @default("{}")
   status      String    @default("pending") // pending|published
   publishedAt DateTime?
 }

@@ -4,12 +4,41 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PlatformIcon } from "@/components/PlatformIcon";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Select } from "@/components/Select";
+import { MediaEditor, MediaValue, mediaValueToStored } from "@/components/MediaEditor";
 import { PLATFORM_MAP } from "@/lib/platforms";
+
+type ItemType = "text" | "photos" | "video";
+interface PlatformOverride {
+  type: ItemType;
+  media: MediaValue;
+}
+interface WizardItem {
+  type: ItemType;
+  title: string;
+  description: string;
+  media: MediaValue; // base content (used for platforms without an override)
+  customize: boolean; // give each platform its own type + media
+  perPlatform: Record<string, PlatformOverride>;
+}
+const ITEM_TYPE_LABELS: { value: ItemType; label: string }[] = [
+  { value: "text", label: "Text" },
+  { value: "photos", label: "Photos" },
+  { value: "video", label: "Video" },
+];
+const EMPTY_MEDIA: MediaValue = { media: [], urls: "" };
+
+// Types a platform can publish, from the wizard's set.
+function typesFor(platform: string): ItemType[] {
+  return ITEM_TYPE_LABELS.map((t) => t.value).filter((t) => PLATFORM_MAP[platform]?.supports.includes(t));
+}
 
 interface PipelineItem {
   id: string;
   title: string;
   description: string;
+  type: string;
+  mediaCount: number;
   status: string;
   publishedAt: string | null;
 }
@@ -44,11 +73,43 @@ export function PipelinesClient({ pipelines, profiles }: { pipelines: Pipeline[]
   const [activeDays, setActiveDays] = useState<string[]>(["mon", "wed", "fri"]);
   const [slotTimes, setSlotTimes] = useState("10:00");
   const [loop, setLoop] = useState(false);
-  const [items, setItems] = useState<{ title: string; description: string }[]>([{ title: "", description: "" }]);
+  const [items, setItems] = useState<WizardItem[]>([
+    { type: "text", title: "", description: "", media: { media: [], urls: "" }, customize: false, perPlatform: {} },
+  ]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const profile = profiles.find((p) => p.id === profileId);
+
+  // Base type options = types EVERY selected platform supports (the base applies
+  // to platforms without an override). Instagram/TikTok have no "text".
+  const allowedTypes = ITEM_TYPE_LABELS.map((t) => t.value).filter(
+    (t) => platforms.length > 0 && platforms.every((p) => PLATFORM_MAP[p]?.supports.includes(t))
+  );
+  const textBlockedBy = platforms.filter((p) => !PLATFORM_MAP[p]?.supports.includes("text"));
+
+  // A stored base type may become unsupported when platforms change; fall back
+  // to the first allowed type for display/submit (no setState-in-effect).
+  const effType = (it: WizardItem): ItemType =>
+    allowedTypes.includes(it.type) ? it.type : allowedTypes[0] ?? it.type;
+
+  function patchItem(idx: number, patch: Partial<WizardItem>) {
+    setItems((its) => its.map((it, j) => (j === idx ? { ...it, ...patch } : it)));
+  }
+
+  // The override for one platform, defaulting to a supported type + empty media.
+  function overrideFor(it: WizardItem, platform: string): PlatformOverride {
+    return it.perPlatform[platform] ?? { type: typesFor(platform)[0] ?? "photos", media: { ...EMPTY_MEDIA } };
+  }
+  function patchOverride(idx: number, platform: string, patch: Partial<PlatformOverride>) {
+    setItems((its) =>
+      its.map((it, j) => {
+        if (j !== idx) return it;
+        const cur = it.perPlatform[platform] ?? overrideFor(it, platform);
+        return { ...it, perPlatform: { ...it.perPlatform, [platform]: { ...cur, ...patch } } };
+      })
+    );
+  }
 
   async function create() {
     setBusy(true);
@@ -64,7 +125,23 @@ export function PipelinesClient({ pipelines, profiles }: { pipelines: Pipeline[]
         slotTimes: slotTimes.split(",").map((s) => s.trim()).filter(Boolean),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         loop,
-        items: items.filter((i) => i.title || i.description),
+        items: items
+          .filter((i) => i.title || i.description || i.media.media.length || i.media.urls.trim() || i.customize)
+          .map((i) => ({
+            type: effType(i),
+            title: i.title,
+            description: i.description,
+            media: mediaValueToStored(i.media),
+            // When customizing, send each selected platform its own type + media.
+            perPlatform: i.customize
+              ? Object.fromEntries(
+                  platforms.map((pl) => {
+                    const o = overrideFor(i, pl);
+                    return [pl, { type: o.type, media: mediaValueToStored(o.media) }];
+                  })
+                )
+              : {},
+          })),
       }),
     });
     const data = await res.json();
@@ -74,7 +151,7 @@ export function PipelinesClient({ pipelines, profiles }: { pipelines: Pipeline[]
     setStep(1);
     setName("");
     setPlatforms([]);
-    setItems([{ title: "", description: "" }]);
+    setItems([{ type: "text", title: "", description: "", media: { media: [], urls: "" }, customize: false, perPlatform: {} }]);
     router.refresh();
   }
 
@@ -128,6 +205,8 @@ export function PipelinesClient({ pipelines, profiles }: { pipelines: Pipeline[]
         )}
         {pipelines.map((p) => {
           const pending = p.items.filter((i) => i.status === "pending").length;
+          // The quick "+ Item" adds a text item; only offer it where text works.
+          const textOk = p.platforms.length > 0 && p.platforms.every((pl) => PLATFORM_MAP[pl]?.supports.includes("text"));
           return (
             <div key={p.id} className="card p-5">
               <div className="flex flex-wrap items-center gap-3">
@@ -140,7 +219,14 @@ export function PipelinesClient({ pipelines, profiles }: { pipelines: Pipeline[]
                   <button onClick={() => action(p.id, p.status === "active" ? "pause" : "resume")} className="btn-secondary px-3 py-1 text-xs">
                     {p.status === "active" ? "⏸ Pause" : "▶ Resume"}
                   </button>
-                  <button onClick={() => addItem(p.id)} className="btn-secondary px-3 py-1 text-xs">+ Item</button>
+                  <button
+                    onClick={() => addItem(p.id)}
+                    disabled={!textOk}
+                    title={textOk ? "Add a text item" : "This pipeline's platforms need media — add media items in the create wizard"}
+                    className="btn-secondary px-3 py-1 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    + Text item
+                  </button>
                   <button onClick={() => remove(p.id, p.name)} className="rounded-lg border border-red-200 dark:border-red-800 px-3 py-1 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 cursor-pointer">
                     Delete
                   </button>
@@ -161,6 +247,10 @@ export function PipelinesClient({ pipelines, profiles }: { pipelines: Pipeline[]
                   {p.items.map((i, idx) => (
                     <li key={i.id} className="flex items-center gap-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2 text-sm">
                       <span className="w-6 text-xs font-bold text-slate-400">#{idx + 1}</span>
+                      <span className="rounded bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500 dark:text-slate-300">
+                        {i.type}
+                        {i.type !== "text" && i.mediaCount > 0 && ` · ${i.mediaCount}`}
+                      </span>
                       <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">{i.title || i.description || "(untitled)"}</span>
                       <StatusBadge status={i.status === "published" ? "published" : "pending"} />
                     </li>
@@ -188,12 +278,13 @@ export function PipelinesClient({ pipelines, profiles }: { pipelines: Pipeline[]
                   <input id="pname" className="input" placeholder="e.g. Daily course promos" value={name} onChange={(e) => setName(e.target.value)} />
                 </div>
                 <div>
-                  <label className="label" htmlFor="pprofile">Profile</label>
-                  <select id="pprofile" className="input" value={profileId} onChange={(e) => { setProfileId(e.target.value); setPlatforms([]); }}>
-                    {profiles.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
+                  <span className="label">Profile</span>
+                  <Select
+                    ariaLabel="Profile"
+                    value={profileId}
+                    onChange={(v) => { setProfileId(v); setPlatforms([]); }}
+                    options={profiles.map((p) => ({ value: p.id, label: p.name }))}
+                  />
                 </div>
                 <div>
                   <span className="label">Platforms</span>
@@ -261,22 +352,119 @@ export function PipelinesClient({ pipelines, profiles }: { pipelines: Pipeline[]
                           <button onClick={() => setItems(items.filter((_, j) => j !== i))} className="text-xs text-red-500 cursor-pointer">Remove</button>
                         )}
                       </div>
+
                       <input
                         className="input mt-1"
                         placeholder="Title (emoji welcome 🚀)"
                         value={item.title}
-                        onChange={(e) => setItems(items.map((it, j) => (j === i ? { ...it, title: e.target.value } : it)))}
+                        onChange={(e) => patchItem(i, { title: e.target.value })}
                       />
                       <textarea
                         className="input mt-2 min-h-14"
                         placeholder="Description / caption"
                         value={item.description}
-                        onChange={(e) => setItems(items.map((it, j) => (j === i ? { ...it, description: e.target.value } : it)))}
+                        onChange={(e) => patchItem(i, { description: e.target.value })}
                       />
+
+                      {platforms.length > 1 && (
+                        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={item.customize}
+                            onChange={(e) => patchItem(i, { customize: e.target.checked })}
+                            className="accent-emerald-600"
+                          />
+                          Different content per platform
+                        </label>
+                      )}
+
+                      {!item.customize ? (
+                        <>
+                          {/* Base content — same for every platform */}
+                          <div className="mt-2 inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5">
+                            {ITEM_TYPE_LABELS.filter((t) => allowedTypes.includes(t.value)).map((t) => (
+                              <button
+                                key={t.value}
+                                onClick={() => patchItem(i, { type: t.value })}
+                                className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors cursor-pointer ${
+                                  effType(item) === t.value
+                                    ? "bg-emerald-600 text-white"
+                                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                                }`}
+                              >
+                                {t.label}
+                              </button>
+                            ))}
+                          </div>
+                          {i === 0 && textBlockedBy.length > 0 && (
+                            <p className="mt-1 text-[10px] text-slate-400">
+                              Text posts aren&apos;t available for {textBlockedBy.map((p) => PLATFORM_MAP[p]?.name ?? p).join(", ")} —
+                              they need photos or video.
+                            </p>
+                          )}
+                          {effType(item) !== "text" && (
+                            <div className="mt-2">
+                              <MediaEditor
+                                kind={effType(item) === "video" ? "video" : "photos"}
+                                value={item.media}
+                                onChange={(v) => patchItem(i, { media: v })}
+                                onError={setError}
+                              />
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          {platforms.map((pl) => {
+                            const o = overrideFor(item, pl);
+                            const pts = typesFor(pl);
+                            return (
+                              <div key={pl} className="rounded-lg border border-slate-200 dark:border-slate-800 p-2.5">
+                                <div className="flex items-center gap-1.5">
+                                  <PlatformIcon platform={pl} size={14} />
+                                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{PLATFORM_MAP[pl]?.name ?? pl}</span>
+                                  <div className="ml-auto inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5">
+                                    {ITEM_TYPE_LABELS.filter((t) => pts.includes(t.value)).map((t) => (
+                                      <button
+                                        key={t.value}
+                                        onClick={() => patchOverride(i, pl, { type: t.value })}
+                                        className={`rounded-md px-2.5 py-0.5 text-[11px] font-semibold transition-colors cursor-pointer ${
+                                          o.type === t.value
+                                            ? "bg-emerald-600 text-white"
+                                            : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                                        }`}
+                                      >
+                                        {t.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                {o.type !== "text" && (
+                                  <div className="mt-2">
+                                    <MediaEditor
+                                      kind={o.type === "video" ? "video" : "photos"}
+                                      value={o.media}
+                                      onChange={(v) => patchOverride(i, pl, { media: v })}
+                                      onError={setError}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
-                <button onClick={() => setItems([...items, { title: "", description: "" }])} className="mt-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 cursor-pointer">
+                <p className="mt-2 text-[10px] text-slate-400">
+                  Instagram, TikTok and Facebook fetch media from a public URL — set{" "}
+                  <code className="font-mono">PUBLIC_BASE_URL</code> so uploaded files are reachable.
+                </p>
+                <button
+                  onClick={() => setItems([...items, { type: "text", title: "", description: "", media: { media: [], urls: "" }, customize: false, perPlatform: {} }])}
+                  className="mt-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 cursor-pointer"
+                >
                   + Add another item
                 </button>
               </div>

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/internal-auth";
-import { saveUploadedFile, StoredFile } from "@/lib/upload";
-import { createPost, publishPost, retryFailedTargets } from "@/lib/publish";
+import { saveUploadedFile, sanitizeStoredMedia, StoredFile } from "@/lib/upload";
+import { createPost, publishPost, retryFailedTargets, PlatformContent } from "@/lib/publish";
 import { nextAvailableSlot } from "@/lib/queue";
-import { PostType } from "@/lib/platforms";
+import { PostType, PLATFORM_MAP } from "@/lib/platforms";
+
+const POST_TYPES = new Set(["text", "photos", "video"]);
 
 // POST — create a post from the dashboard Upload page (multipart)
 export async function POST(req: NextRequest) {
@@ -33,12 +35,65 @@ export async function POST(req: NextRequest) {
   for (const url of mediaUrls) {
     media.push({ path: "", name: url, size: 0, mime: "url" });
   }
+  // Per-platform content overrides: { platform: { type, media: StoredFile[] } }.
+  // Media here is already-staged StoredFile refs (via /api/internal/media) or URL
+  // stubs — sanitized the same way as the base media.
+  const perPlatform: Record<string, PlatformContent> = {};
+  let rawPerPlatform: Record<string, { type?: string; media?: unknown }> = {};
+  try {
+    rawPerPlatform = JSON.parse(String(form.get("perPlatform") ?? "{}"));
+  } catch {
+    return NextResponse.json({ success: false, error: "Invalid perPlatform payload" }, { status: 400 });
+  }
+  for (const [platform, pc] of Object.entries(rawPerPlatform)) {
+    if (!platforms.includes(platform)) continue;
+    const t = (POST_TYPES.has(String(pc.type)) ? String(pc.type) : type) as PostType;
+    const m = sanitizeStoredMedia(pc.media);
+    const def = PLATFORM_MAP[platform];
+    if (!def?.supports.includes(t)) {
+      return NextResponse.json(
+        { success: false, error: `${def?.name ?? platform} can't publish ${t} posts` },
+        { status: 400 }
+      );
+    }
+    if (t !== "text" && m.length === 0) {
+      return NextResponse.json(
+        { success: false, error: `${def.name} is a ${t} post but has no media` },
+        { status: 400 }
+      );
+    }
+    perPlatform[platform] = { type: t, media: m };
+  }
+
+  // Validate base content for any platform WITHOUT an override.
+  for (const platform of platforms) {
+    if (perPlatform[platform]) continue;
+    const def = PLATFORM_MAP[platform];
+    if (def && !def.supports.includes(type)) {
+      return NextResponse.json(
+        { success: false, error: `${def.name} can't publish ${type} posts — give it its own content` },
+        { status: 400 }
+      );
+    }
+    if (type !== "text" && media.length === 0) {
+      return NextResponse.json(
+        { success: false, error: `A ${type} post needs at least one media file` },
+        { status: 400 }
+      );
+    }
+  }
 
   let scheduledAt: Date | null = null;
   if (mode === "schedule") {
     scheduledAt = new Date(String(form.get("scheduledAt")));
     if (isNaN(scheduledAt.getTime())) {
       return NextResponse.json({ success: false, error: "Invalid schedule date" }, { status: 400 });
+    }
+    if (scheduledAt.getTime() <= Date.now()) {
+      return NextResponse.json(
+        { success: false, error: "Scheduled time must be in the future" },
+        { status: 400 }
+      );
     }
   } else if (mode === "queue") {
     scheduledAt = await nextAvailableSlot(profile.id);
@@ -53,6 +108,7 @@ export async function POST(req: NextRequest) {
     overrides,
     platforms,
     media,
+    perPlatform,
     scheduledAt,
     source: "manual",
     draft: mode === "draft",
