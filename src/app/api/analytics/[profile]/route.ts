@@ -53,13 +53,16 @@ export async function GET(
     profile: profile.name,
     from: from.toISOString().slice(0, 10),
     to: to.toISOString().slice(0, 10),
+    // null means the platform does not expose that metric to us — it is not a
+    // measured zero. Metrics are collected from the platform APIs themselves.
     platforms: Object.fromEntries(
       Object.entries(byPlatform).map(([k, v]) => [
         k,
         {
-          followers: v.latest?.followers ?? 0,
-          reach: v.latest?.reach ?? 0,
-          impressions: v.latest?.impressions ?? 0,
+          followers: v.latest?.followers ?? null,
+          reach: v.latest?.reach ?? null,
+          impressions: v.latest?.impressions ?? null,
+          collected_at: v.latest?.collectedAt.toISOString() ?? null,
           series: v.series,
         },
       ])
