@@ -42,6 +42,7 @@ function Section({ id, title, children }: { id: string; title: string; children:
 }
 
 export default function DocsPage() {
+  const baseUrl = process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || "https://your-domain.com";
   return (
     <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
       <nav className="lg:sticky lg:top-20 h-fit" aria-label="Docs">
@@ -62,7 +63,7 @@ export default function DocsPage() {
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white">SocialPost API</h1>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 max-w-2xl">
             One API call to post on all platforms. RESTful, multipart-friendly, emoji-safe. Base URL:{" "}
-            <code className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-mono text-xs">http://localhost:3000/api</code>
+            <code className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-mono text-xs">{`${baseUrl}/api`}</code>
           </p>
         </div>
 
@@ -88,7 +89,7 @@ export default function DocsPage() {
   -F 'platform[]=tiktok' \\
   -F 'platform[]=instagram' \\
   -F 'platform[]=youtube' \\
-  -X POST http://localhost:3000/api/upload`} />
+  -X POST ${baseUrl}/api/upload`} />
           <div className="overflow-x-auto">
             <table className="w-full min-w-[480px]">
               <tbody>
@@ -115,7 +116,7 @@ export default function DocsPage() {
   -F 'platform[]=instagram' \\
   -F 'title="My Awesome Photo Album 📸"' \\
   -F 'description="Check out these cool photos!"' \\
-  -X POST http://localhost:3000/api/upload_photos`} />
+  -X POST ${baseUrl}/api/upload_photos`} />
           <p className="text-sm text-slate-500 dark:text-slate-400">Multiple photos become a carousel where supported (Instagram ≤10, LinkedIn ≤9, X ≤4…).</p>
         </Section>
 
@@ -126,7 +127,7 @@ export default function DocsPage() {
   -F 'platform[]=x' \\
   -F 'title="This is my amazing post! 🎉"' \\
   -F 'caption="Optional: a caption for stats & tracking."' \\
-  -X POST http://localhost:3000/api/upload_text`} />
+  -X POST ${baseUrl}/api/upload_text`} />
           <p className="text-sm text-slate-500 dark:text-slate-400">
             Supports X, LinkedIn, Facebook, Threads, Reddit, Bluesky, Discord, Telegram, Google
             Business, Slack, Mastodon, Nostr, Lemmy, Dev.to, Hashnode, WordPress, Whop and Listmonk.
@@ -140,7 +141,7 @@ export default function DocsPage() {
   -F 'title="Our Q3 deck"' \\
   -F 'user="test"' \\
   -F 'platform[]=linkedin' \\
-  -X POST http://localhost:3000/api/uploadposts/upload-document`} />
+  -X POST ${baseUrl}/api/uploadposts/upload-document`} />
           <p className="text-sm text-slate-500 dark:text-slate-400">PDF, PPT, PPTX, DOC, DOCX — displayed as a native LinkedIn document carousel.</p>
         </Section>
 
@@ -216,7 +217,7 @@ POST /api/uploadposts/ffmpeg/job
 
 # …or post the file directly
 curl -X POST /api/uploadposts/ffmpeg/job \\
-  -H "Authorization: ApiKey $KEY" \\
+  -H "Authorization: Apikey $KEY" \\
   -F file=@clip.mp4 -F operation=to_vertical
 
 # Operations: scale · trim · to_vertical · extract_audio · thumbnail · transcode
@@ -264,12 +265,12 @@ GET /api/uploadposts/ffmpeg/usage`} />
           <CodeBlock title="Python" code={`pip install -e sdks/python   # local install
 
 from socialpost import SocialPostClient
-client = SocialPostClient("your-api-key", base_url="http://localhost:3000")
+client = SocialPostClient("your-api-key", base_url="${baseUrl}")
 client.upload_text(user="test", platforms=["x"], title="Hello from Python 🐍")`} />
           <CodeBlock title="Node.js" code={`npm install ./sdks/node       # local install
 
 import { SocialPost } from "socialpost-sdk";
-const client = new SocialPost("your-api-key", { baseUrl: "http://localhost:3000" });
+const client = new SocialPost("your-api-key", { baseUrl: "${baseUrl}" });
 await client.uploadText({ user: "test", platforms: ["x"], title: "Hello from Node ⚡" });`} />
         </Section>
 
@@ -289,7 +290,7 @@ await client.uploadText({ user: "test", platforms: ["x"], title: "Hello from Nod
       "args": ["sdks/mcp/server.mjs"],
       "env": {
         "SOCIALPOST_API_KEY": "your-api-key-here",
-        "SOCIALPOST_BASE_URL": "http://localhost:3000"
+        "SOCIALPOST_BASE_URL": "${baseUrl}"
       }
     }
   }

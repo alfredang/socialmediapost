@@ -21,6 +21,8 @@ export async function GET(
     success: true,
     request_id: post.requestId,
     title: post.title,
+    // null means the metric has not been collected yet — it is not a measured
+    // zero. collected_at lets callers tell "no data yet" from a genuine zero.
     platforms: Object.fromEntries(
       post.targets.map((t) => {
         const m = t.metrics[0];
@@ -29,10 +31,11 @@ export async function GET(
           {
             status: t.status,
             url: t.externalUrl,
-            views: m?.views ?? 0,
-            likes: m?.likes ?? 0,
-            comments: m?.comments ?? 0,
-            shares: m?.shares ?? 0,
+            views: m?.views ?? null,
+            likes: m?.likes ?? null,
+            comments: m?.comments ?? null,
+            shares: m?.shares ?? null,
+            collected_at: m?.createdAt.toISOString() ?? null,
           },
         ];
       })

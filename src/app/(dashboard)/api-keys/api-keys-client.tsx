@@ -16,7 +16,7 @@ interface KeyRow {
   lastUsedAt: string | null;
 }
 
-const SNIPPETS = (key: string) => ({
+const SNIPPETS = (key: string, baseUrl: string) => ({
   cURL: `curl \\
   -H 'Authorization: Apikey ${key}' \\
   -F 'video=@/path/to/your/video.mp4' \\
@@ -25,10 +25,10 @@ const SNIPPETS = (key: string) => ({
   -F 'platform[]=tiktok' \\
   -F 'platform[]=instagram' \\
   -F 'platform[]=youtube' \\
-  -X POST http://localhost:3000/api/upload`,
+  -X POST ${baseUrl}/api/upload`,
   JavaScript: `import { SocialPost } from "socialpost-sdk";
 
-const client = new SocialPost("${key}");
+const client = new SocialPost("${key}", { baseUrl: "${baseUrl}" });
 
 const result = await client.uploadVideo({
   video: "./video.mp4",
@@ -39,7 +39,7 @@ const result = await client.uploadVideo({
 console.log(result.results);`,
   Python: `from socialpost import SocialPostClient
 
-client = SocialPostClient("${key}")
+client = SocialPostClient("${key}", base_url="${baseUrl}")
 
 result = client.upload_video(
     video="./video.mp4",
@@ -61,10 +61,12 @@ const VIDEO_REQUIREMENTS: Record<string, { rows: [string, string][] }> = {
 };
 
 export function ApiKeysClient({
+  baseUrl,
   plan,
   keys,
   usage,
 }: {
+  baseUrl: string;
   plan: { id: string; name: string; ffmpegMinutes: number; uploads: number };
   keys: KeyRow[];
   usage: { apiCalls: number; ffmpegUsed: number; ffmpegRequests: number };
@@ -76,7 +78,7 @@ export function ApiKeysClient({
   const [reqTab, setReqTab] = useState("tiktok");
 
   const exampleKey = newKey ?? "your-api-key-here";
-  const snippets = SNIPPETS(exampleKey);
+  const snippets = SNIPPETS(exampleKey, baseUrl);
 
   async function createKey() {
     const label = window.prompt("Name this key", "Production Key");

@@ -7,13 +7,17 @@
 // then put the Instagram app ID/secret in INSTAGRAM_CLIENT_ID / INSTAGRAM_CLIENT_SECRET.
 // Add {origin}/api/auth/instagram/callback as a valid OAuth Redirect URI in the app.
 
-// Scopes: basic profile read + content publishing + insights (analytics).
-// manage_insights is what makes reach/views readable; without it the sync still
-// works but records only the metrics basic access exposes.
+// Scopes: basic profile read + content publishing + insights (analytics) +
+// comment management. manage_insights is what makes reach/views readable;
+// without it the sync still works but records only the metrics basic access
+// exposes. manage_comments is required to READ and REPLY to comments on your
+// media — without it those calls fail the same way Facebook's #10 does. A
+// connection made before this scope was added must RECONNECT to gain it.
 const SCOPES = [
   "instagram_business_basic",
   "instagram_business_content_publish",
   "instagram_business_manage_insights",
+  "instagram_business_manage_comments",
 ];
 
 export function instagramConfigured(): boolean {
@@ -329,4 +333,63 @@ export async function publishToInstagram(
   }
 
   return { url: permalink || `https://www.instagram.com/`, externalId: mediaId };
+}
+
+// ── Comments ─────────────────────────────────────────────────────────────
+// Read/reply on your own media with the stored IG token. Reading and replying
+// come with instagram_business_basic + content_publish (granted at connect).
+// IG uses `text`/`username` (not FB's `message`/`from`) and replies go to the
+// comment's /replies edge, not /comments.
+
+export interface IgComment {
+  id: string;
+  text: string;
+  username?: string;
+  timestamp?: string;
+  likeCount?: number;
+}
+
+interface RawIgComment {
+  id: string;
+  text?: string;
+  username?: string;
+  timestamp?: string;
+  like_count?: number;
+}
+
+// Returns the media's comments plus IG's own total `comments_count`. The count
+// is the diagnostic: comments:[] with count 0 means IG has no comments on THIS
+// media (wrong media, propagation lag, or the comment is elsewhere); comments:[]
+// with count > 0 means IG is withholding them from the read (hidden/filtered).
+// We read via the media object (fields=comments_count,comments{...}) so both come
+// back in one call.
+export async function fetchMediaComments(
+  mediaId: string,
+  accessToken: string
+): Promise<{ comments: IgComment[]; count: number | null }> {
+  const data = await igGet(mediaId, {
+    fields: "comments_count,comments{id,text,username,timestamp,like_count}",
+    access_token: accessToken,
+  });
+  const rows: RawIgComment[] = data.comments?.data ?? [];
+  return {
+    count: typeof data.comments_count === "number" ? data.comments_count : null,
+    comments: rows.map((c) => ({
+      id: c.id,
+      text: c.text ?? "",
+      username: c.username,
+      timestamp: c.timestamp,
+      likeCount: c.like_count,
+    })),
+  };
+}
+
+// Reply to a comment (creates a threaded reply) and return the new comment id.
+export async function replyToIgComment(
+  commentId: string,
+  message: string,
+  accessToken: string
+): Promise<{ id: string }> {
+  const data = await igPost(`${commentId}/replies`, { message, access_token: accessToken });
+  return { id: String(data.id) };
 }

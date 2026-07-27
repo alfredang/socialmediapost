@@ -24,8 +24,11 @@ export default async function ApiKeysPage() {
     db.ffmpegJob.count({ where: { accountId: account.id, createdAt: { gte: monthStart } } }),
   ]);
 
+  const baseUrl = process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || "https://your-domain.com";
+
   return (
     <ApiKeysClient
+      baseUrl={baseUrl}
       plan={{ id: plan.id, name: plan.name, ffmpegMinutes: plan.ffmpegMinutes, uploads: plan.uploadsPerMonth }}
       keys={keys.map((k) => ({
         id: k.id,

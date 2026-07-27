@@ -17,7 +17,11 @@ import { TokenExpiredError } from "./oauth-errors";
 
 const SCOPES = ["openid", "profile", "w_member_social"];
 const REST = "https://api.linkedin.com/rest";
-const LI_VERSION = "202506"; // LinkedIn-Version header (YYYYMM), pinned
+// LinkedIn-Version header (YYYYMM), pinned. LinkedIn publishes monthly and keeps
+// each version active for a MINIMUM OF ONE YEAR, then sunsets it — a stale pin
+// fails with "Requested version <YYYYMM01> is not active". Bump this to a current
+// version at least annually; see https://learn.microsoft.com/linkedin/marketing/versioning
+const LI_VERSION = "202607";
 
 export function linkedinConfigured(): boolean {
   return Boolean(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET);

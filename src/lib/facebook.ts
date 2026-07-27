@@ -11,14 +11,21 @@
 // Page tokens derived from a long-lived user token do not expire.
 
 import { appBaseUrl } from "./base-url";
-import { TokenExpiredError } from "./oauth-errors";
+import { TokenExpiredError, MissingPermissionError } from "./oauth-errors";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 // read_insights is what makes Page/post impressions readable; without it the
 // analytics sync still records follower and engagement counts.
+// pages_read_user_content is required to READ user-generated content (comments
+// and posts left by others) — pages_read_engagement alone only covers the
+// Page's own metadata, which is why comment reads fail with Graph error #10.
+// pages_manage_engagement is required to REPLY to / moderate those comments.
+// Both need Meta App Review before non-admin users can grant them in production.
 const SCOPES = [
   "pages_manage_posts",
   "pages_read_engagement",
+  "pages_read_user_content",
+  "pages_manage_engagement",
   "pages_show_list",
   "read_insights",
 ];
@@ -50,8 +57,25 @@ export function authorizeUrl(origin: string, state: string): string {
   return url.toString();
 }
 
-function fbError(data: { error?: { message?: string; code?: number } }, context: string): Error {
+function fbError(
+  data: { error?: { message?: string; code?: number; error_subcode?: number } },
+  context: string
+): Error {
   if (data.error?.code === 190) return new TokenExpiredError("Facebook");
+  // #10 and #200 are Graph's permission-denied family (e.g. reading comments
+  // without pages_read_user_content). Surface it as a reconnect prompt.
+  if (data.error?.code === 10 || data.error?.code === 200) {
+    return new MissingPermissionError("Facebook", data.error.message);
+  }
+  // #100/subcode 33: the object can't be loaded with this token — the post was
+  // deleted, belongs to a different Page, or the token predates the newly added
+  // comment scopes. All three are fixed by reconnecting the owning Page.
+  if (data.error?.code === 100 && data.error?.error_subcode === 33) {
+    return new MissingPermissionError(
+      "Facebook",
+      "post not readable with the connected Page token — it may have been deleted, belong to another Page, or need a reconnect to grant comment access"
+    );
+  }
   return new Error(data.error?.message || `Facebook API error (${context})`);
 }
 
@@ -241,6 +265,58 @@ export async function fetchPostMetrics(
   }
 
   return out;
+}
+
+// ── Comments ─────────────────────────────────────────────────────────────
+// Read/reply straight through the Graph API using the Page token. Reading needs
+// pages_read_user_content and replying needs pages_manage_engagement (see SCOPES
+// above). A connection made before those scopes were added must RECONNECT — the
+// old Page token lacks them, so Graph rejects the read with error #10.
+
+export interface FbComment {
+  id: string;
+  message: string;
+  from?: { id: string; name: string };
+  createdTime?: string;
+  likeCount?: number;
+}
+
+interface RawComment {
+  id: string;
+  message?: string;
+  from?: { id: string; name: string };
+  created_time?: string;
+  like_count?: number;
+}
+
+// Comments on a Page post, newest first.
+export async function fetchPostComments(
+  postId: string,
+  pageToken: string
+): Promise<FbComment[]> {
+  const data = await fbGet(`${postId}/comments`, {
+    fields: "id,message,from,created_time,like_count",
+    order: "reverse_chronological",
+    access_token: pageToken,
+  });
+  const rows: RawComment[] = data.data ?? [];
+  return rows.map((c) => ({
+    id: c.id,
+    message: c.message ?? "",
+    from: c.from ? { id: c.from.id, name: c.from.name } : undefined,
+    createdTime: c.created_time,
+    likeCount: c.like_count,
+  }));
+}
+
+// Reply to a comment (creates a nested reply) and return the new comment id.
+export async function replyToComment(
+  commentId: string,
+  message: string,
+  pageToken: string
+): Promise<{ id: string }> {
+  const data = await fbPost(`${commentId}/comments`, { message, access_token: pageToken });
+  return { id: data.id };
 }
 
 export interface FbPublishInput {

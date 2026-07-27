@@ -7,3 +7,16 @@ export class TokenExpiredError extends Error {
     this.name = "TokenExpiredError";
   }
 }
+
+// Thrown when the stored token is valid but lacks a permission the request needs
+// (e.g. Facebook Graph error #10 when reading comments without
+// pages_read_user_content). The fix is a reconnect to grant the new scope — or,
+// for advanced permissions, completing Meta App Review.
+export class MissingPermissionError extends Error {
+  constructor(platformName: string, detail?: string) {
+    super(
+      `${platformName} is missing a permission for this action — reconnect the account on the Users page to grant it${detail ? ` (${detail})` : ""}`
+    );
+    this.name = "MissingPermissionError";
+  }
+}
