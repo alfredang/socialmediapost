@@ -38,6 +38,20 @@ section("all dashboard pages render (authed, 200)");
   }
 }
 
+section("credential connect (Discord/Slack) validates before storing");
+{
+  // Unsupported platform → 400 (OAuth platforms aren't connected this way).
+  const oauth = await req("POST", "/api/internal/social-accounts", {
+    json: { profileId, platform: "instagram", webhookUrl: "x" }, cookie,
+  });
+  check("credential connect for OAuth platform -> 400", () => assert.strictEqual(oauth.status, 400));
+  // Malformed Discord webhook URL is rejected on format before any network call.
+  const bad = await req("POST", "/api/internal/social-accounts", {
+    json: { profileId, platform: "discord", webhookUrl: "not-a-webhook" }, cookie,
+  });
+  check("malformed Discord webhook -> 400", () => assert.strictEqual(bad.status, 400));
+}
+
 section("deleted-account session redirects cleanly (no crash)");
 {
   const del = await req("DELETE", "/api/internal/account", { cookie });
