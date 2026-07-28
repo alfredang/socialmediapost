@@ -1,0 +1,78 @@
+// Registry of real platform publishers. publishPost fails a target with a
+// clear error when its platform has no entry here or its SocialAccount lacks
+// an OAuth token — there is no simulated fallback.
+
+import type { SocialAccount } from "@prisma/client";
+import { PostType } from "./platforms";
+import { StoredFile } from "./upload";
+import { publishToInstagram } from "./instagram";
+import { publishToFacebook } from "./facebook";
+import { publishToLinkedIn } from "./linkedin";
+import { publishToTikTok } from "./tiktok";
+
+// Builds a public URL a platform's servers can fetch a stored media file from.
+// Media-URL stubs (mime "url") are already public — pass them through.
+export function publicMediaUrl(file: StoredFile): string {
+  if (file.mime === "url") return file.name;
+  const base = process.env.PUBLIC_BASE_URL;
+  if (!base) {
+    throw new Error(
+      "PUBLIC_BASE_URL is not set — this platform needs a public https URL to fetch your media"
+    );
+  }
+  return `${base.replace(/\/$/, "")}/api/media/${file.path}`;
+}
+
+export interface PublishContext {
+  account: SocialAccount; // token-fresh account (externalUserId + accessToken set)
+  type: PostType;
+  media: StoredFile[];
+  mediaUrls: () => string[]; // lazy — only demands PUBLIC_BASE_URL when actually used
+  caption: string; // adapted title + body
+  title: string; // adapted title alone (media card titles)
+  firstComment: string;
+}
+
+export type PlatformPublisher = (
+  ctx: PublishContext
+) => Promise<{ url: string; externalId: string }>;
+
+export const REAL_PUBLISHERS: Record<string, PlatformPublisher> = {
+  instagram: (ctx) =>
+    publishToInstagram({
+      igUserId: ctx.account.externalUserId!,
+      accessToken: ctx.account.accessToken!,
+      type: ctx.type === "video" ? "video" : "photos",
+      mediaUrls: ctx.mediaUrls(),
+      caption: ctx.caption,
+      firstComment: ctx.firstComment,
+    }),
+  facebook: (ctx) =>
+    publishToFacebook({
+      pageId: ctx.account.externalUserId!,
+      pageToken: ctx.account.accessToken!,
+      type: ctx.type as "video" | "photos" | "text",
+      mediaUrls: ctx.type === "text" ? [] : ctx.mediaUrls(),
+      message: ctx.caption,
+      firstComment: ctx.firstComment,
+    }),
+  linkedin: (ctx) =>
+    publishToLinkedIn({
+      personId: ctx.account.externalUserId!,
+      accessToken: ctx.account.accessToken!,
+      type: ctx.type,
+      media: ctx.media,
+      commentary: ctx.caption,
+      title: ctx.title,
+      firstComment: ctx.firstComment,
+    }),
+  tiktok: (ctx) =>
+    publishToTikTok({
+      accessToken: ctx.account.accessToken!,
+      handle: ctx.account.handle,
+      type: ctx.type as "video" | "photos",
+      media: ctx.media,
+      mediaUrls: ctx.type === "photos" ? ctx.mediaUrls() : [],
+      caption: ctx.caption,
+    }),
+};

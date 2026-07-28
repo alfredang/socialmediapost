@@ -1,12 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Select } from "@/components/Select";
 
 interface QueueConfig {
   timezone: string;
   activeDays: string[];
   slotTimes: string[];
   maxPerSlot: number;
+}
+
+interface QueueSlot {
+  time: string;
+  used: number;
+  capacity: number;
+  available: boolean;
+  posts: { id: string; title: string }[];
 }
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -22,17 +31,24 @@ const TIMEZONES = [
   ["UTC", "UTC"],
 ];
 
+// The wall-clock time HH:MM in `tz` (today) as it reads on the browser's own
+// clock. When the selected timezone IS the browser's, this returns HH:MM
+// unchanged (nothing to convert).
 function localBadge(time: string, tz: string): string {
-  // Convert an HH:MM in tz to the browser's local wall time (today's offset)
   try {
     const [hh, mm] = time.split(":").map(Number);
     const now = new Date();
-    const probe = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm);
-    // interpret probe as tz time: find the UTC instant whose tz-rendering equals probe
-    const target = new Date(probe.toLocaleString("en-US", { timeZone: "UTC" }));
-    const inTz = new Date(probe.toLocaleString("en-US", { timeZone: tz }));
-    const utc = new Date(probe.getTime() + (target.getTime() - inTz.getTime()));
-    return utc.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    // tz's current calendar date + its UTC offset right now.
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, hour12: false,
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    }).formatToParts(now);
+    const get = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+    const tzOffsetMin =
+      (Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute")) - now.getTime()) / 60000;
+    // UTC instant of HH:MM on tz's today, then rendered in the browser's zone.
+    const utcMs = Date.UTC(get("year"), get("month") - 1, get("day"), hh, mm) - tzOffsetMin * 60000;
+    return new Date(utcMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
   } catch {
     return time;
   }
@@ -49,11 +65,11 @@ export function QueueClient({
   initial,
 }: {
   profiles: { id: string; name: string }[];
-  initial: { profileId: string; config: QueueConfig; slots: string[] } | null;
+  initial: { profileId: string; config: QueueConfig; slots: QueueSlot[] } | null;
 }) {
   const [profileId, setProfileId] = useState(initial?.profileId ?? "");
   const [config, setConfig] = useState<QueueConfig | null>(initial?.config ?? null);
-  const [slots, setSlots] = useState<string[]>(initial?.slots ?? []);
+  const [slots, setSlots] = useState<QueueSlot[]>(initial?.slots ?? []);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -70,6 +86,26 @@ export function QueueClient({
         }
       });
   }, [profileId]);
+
+  // Live preview: recompute (debounced) whenever the unsaved config changes, so
+  // toggling active days / editing times updates the slot list immediately —
+  // without persisting each edit. Occupancy comes from the same server logic.
+  useEffect(() => {
+    if (!profileId || !config) return;
+    const t = setTimeout(() => {
+      fetch("/api/internal/queue", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ profileId, ...config }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.success) setSlots(d.slots);
+        })
+        .catch(() => {});
+    }, 350);
+    return () => clearTimeout(t);
+  }, [profileId, config]);
 
   async function save(refreshOnly = false) {
     if (!config) return;
@@ -133,11 +169,13 @@ export function QueueClient({
           <h2 className="text-xl font-bold text-slate-900 dark:text-white">Configuring queue for</h2>
           <p className="text-sm text-slate-400">Each profile has its own queue settings.</p>
         </div>
-        <select className="input w-56" value={profileId} onChange={(e) => setProfileId(e.target.value)} aria-label="Select profile">
-          {profiles.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+        <Select
+          className="w-56"
+          ariaLabel="Select profile"
+          value={profileId}
+          onChange={setProfileId}
+          options={profiles.map((p) => ({ value: p.id, label: p.name }))}
+        />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -145,12 +183,13 @@ export function QueueClient({
         <section className="card p-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-white">Configuration</h2>
 
-          <label className="label mt-4" htmlFor="tz">Timezone</label>
-          <select id="tz" className="input" value={config.timezone} onChange={(e) => setConfig({ ...config, timezone: e.target.value })}>
-            {TIMEZONES.map(([v, label]) => (
-              <option key={v} value={v}>{label}</option>
-            ))}
-          </select>
+          <span className="label mt-4">Timezone</span>
+          <Select
+            ariaLabel="Timezone"
+            value={config.timezone}
+            onChange={(v) => setConfig({ ...config, timezone: v })}
+            options={TIMEZONES.map(([v, label]) => ({ value: v, label }))}
+          />
 
           <span className="label mt-5">Active Days</span>
           <div className="flex flex-wrap gap-1.5">
@@ -201,20 +240,26 @@ export function QueueClient({
               const [hh, mm] = t.split(":");
               return (
                 <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 p-2">
-                  <select value={hh} onChange={(e) => setTime(i, "hh", e.target.value)} className="input w-20" aria-label="Hour">
-                    {Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0")).map((h) => (
-                      <option key={h} value={h}>{h}</option>
-                    ))}
-                  </select>
+                  <Select
+                    className="w-20"
+                    ariaLabel="Hour"
+                    value={hh}
+                    onChange={(v) => setTime(i, "hh", v)}
+                    options={Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0")).map((h) => ({ value: h, label: h }))}
+                  />
                   <span className="font-bold text-slate-400">:</span>
-                  <select value={mm} onChange={(e) => setTime(i, "mm", e.target.value)} className="input w-20" aria-label="Minute">
-                    {["00", "15", "30", "45"].map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                  <span className="rounded bg-emerald-50 dark:bg-emerald-950 px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400">
-                    = {localBadge(t, config.timezone)} local
-                  </span>
+                  <Select
+                    className="w-20"
+                    ariaLabel="Minute"
+                    value={mm}
+                    onChange={(v) => setTime(i, "mm", v)}
+                    options={["00", "15", "30", "45"].map((m) => ({ value: m, label: m }))}
+                  />
+                  {config.timezone !== browserTz && (
+                    <span className="rounded bg-emerald-50 dark:bg-emerald-950 px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400">
+                      = {localBadge(t, config.timezone)} your time
+                    </span>
+                  )}
                   <button
                     onClick={() => setConfig({ ...config, slotTimes: config.slotTimes.filter((_, j) => j !== i) })}
                     aria-label="Remove slot"
@@ -251,35 +296,80 @@ export function QueueClient({
             Showing times in your local timezone (<strong>GMT{gmtOffset >= 0 ? "+" : ""}{gmtOffset}</strong>)
           </p>
           <ul className="mt-3 space-y-2">
-            {slots.map((iso) => {
-              const d = new Date(iso);
+            {slots.map((slot) => {
+              const d = new Date(slot.time);
               return (
-                <li key={iso} className="flex items-center justify-between rounded-xl border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/30 px-4 py-2.5">
-                  <span>
+                <li
+                  key={slot.time}
+                  className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 ${
+                    slot.available
+                      ? "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/30"
+                      : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40"
+                  }`}
+                >
+                  <span className="min-w-0">
                     <span className="block text-sm font-semibold text-slate-900 dark:text-white">
                       {d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}, {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
                     </span>
-                    <span className="block text-xs text-slate-400">
-                      {d.toLocaleString("en-US", { timeZone: config.timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })} ({config.timezone.split("/")[1]?.replace("_", " ")})
-                    </span>
+                    {config.timezone !== browserTz && (
+                      <span className="block text-xs text-slate-400">
+                        {d.toLocaleString("en-US", { timeZone: config.timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })} ({config.timezone.split("/")[1]?.replace("_", " ")})
+                      </span>
+                    )}
+                    {slot.posts.length > 0 && (
+                      <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
+                        {slot.posts.map((p) => p.title).join(", ")}
+                      </span>
+                    )}
                   </span>
-                  <span className="rounded-full border border-green-300 dark:border-green-800 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
-                    Available
+                  <span
+                    className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                      slot.available
+                        ? "border-green-300 dark:border-green-800 text-green-700 dark:text-green-400"
+                        : "border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400"
+                    }`}
+                  >
+                    {slot.available
+                      ? slot.capacity > 1
+                        ? `${slot.capacity - slot.used} of ${slot.capacity} free`
+                        : "Available"
+                      : slot.capacity > 1
+                        ? "Full"
+                        : "Taken"}
                   </span>
                 </li>
               );
             })}
+            {slots.length === 0 && (
+              <li className="rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 text-sm text-slate-400">
+                No upcoming slots — add active days and posting times above.
+              </li>
+            )}
           </ul>
-          {slots[0] && (
-            <div className="mt-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 p-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Next available slot</p>
-              <p className="mt-1 text-lg font-extrabold text-slate-900 dark:text-white">
-                {new Date(slots[0]).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })},{" "}
-                {new Date(slots[0]).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
-              </p>
-              <p className="text-xs text-slate-400">Your local time</p>
-            </div>
-          )}
+          {(() => {
+            const next = slots.find((s) => s.available);
+            if (!next) {
+              return slots.length > 0 ? (
+                <div className="mt-4 rounded-xl bg-amber-50 dark:bg-amber-950/50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400">Queue full</p>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                    Every upcoming slot is taken. New posts queue after the last one shown, or add more posting times.
+                  </p>
+                </div>
+              ) : null;
+            }
+            const nd = new Date(next.time);
+            return (
+              <div className="mt-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Next available slot</p>
+                <p className="mt-1 text-lg font-extrabold text-slate-900 dark:text-white">
+                  {nd.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })},{" "}
+                  {nd.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+                </p>
+                <p className="text-xs text-slate-400">Your local time — where the next queued post lands</p>
+              </div>
+            );
+          })()}
         </section>
       </div>
 

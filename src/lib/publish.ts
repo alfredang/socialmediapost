@@ -1,6 +1,22 @@
 import { db } from "./db";
-import { adaptContent, publishToPlatform, PLATFORM_MAP, PostType, AdaptInput } from "./platforms";
+import {
+  adaptContent,
+  validateMediaForPlatform,
+  PLATFORM_MAP,
+  PostType,
+  AdaptInput,
+} from "./platforms";
 import { StoredFile } from "./upload";
+import { REAL_PUBLISHERS, publicMediaUrl } from "./publishers";
+import { ensureFreshToken } from "./token-refresh";
+import { TokenExpiredError } from "./oauth-errors";
+
+// A platform-specific content override: its own type + media, replacing the
+// post's base type/media for that one platform.
+export interface PlatformContent {
+  type: PostType;
+  media: StoredFile[];
+}
 
 export interface CreatePostInput {
   profileId: string;
@@ -11,10 +27,26 @@ export interface CreatePostInput {
   overrides?: Record<string, string>;
   platforms: string[];
   media: StoredFile[];
+  // Per-platform content. A platform present here publishes its own type+media
+  // instead of the base type/media above.
+  perPlatform?: Record<string, PlatformContent>;
   scheduledAt?: Date | null;
   source?: string;
   draft?: boolean;
   idempotencyKey?: string | null;
+}
+
+// A stored pipeline item → the per-platform content map createPost expects.
+// Its `perPlatform` JSON was sanitized when the item was created.
+export function pipelineItemContent(item: {
+  perPlatform: string;
+}): Record<string, PlatformContent> {
+  const raw = JSON.parse(item.perPlatform || "{}") as Record<string, { type: string; media: StoredFile[] }>;
+  const out: Record<string, PlatformContent> = {};
+  for (const [platform, pc] of Object.entries(raw)) {
+    out[platform] = { type: pc.type as PostType, media: pc.media };
+  }
+  return out;
 }
 
 export async function createPost(input: CreatePostInput) {
@@ -47,8 +79,9 @@ export async function createPost(input: CreatePostInput) {
       idempotencyKey: input.idempotencyKey ?? null,
       targets: {
         create: input.platforms.map((platform) => {
+          const pp = input.perPlatform?.[platform];
           const adapted = adaptContent(platform, {
-            type: input.type,
+            type: pp?.type ?? input.type,
             title: input.title,
             description: input.description,
             firstComment: input.firstComment,
@@ -59,6 +92,9 @@ export async function createPost(input: CreatePostInput) {
             adaptedTitle: adapted.title,
             adaptedBody: adapted.body,
             firstComment: adapted.firstComment,
+            // Store the override only when this platform differs from the base.
+            type: pp ? pp.type : null,
+            mediaFiles: pp ? JSON.stringify(pp.media) : null,
             status: "pending",
           };
         }),
@@ -89,33 +125,49 @@ export async function publishPost(postId: string) {
       if (!def) throw new Error(`Unknown platform "${target.platform}"`);
       if (!account) throw new Error(`No ${def.name} account connected to profile "${post.profile.name}"`);
       if (account.status === "needs_reauth") throw new Error(`${def.name} account requires re-authentication`);
-      if (!def.supports.includes(post.type as PostType)) {
-        throw new Error(`${def.name} does not support ${post.type} posts`);
+      if (account.status === "pending_page") {
+        throw new Error(`Choose a Facebook Page on the Users page to finish connecting this account`);
       }
-      const { url, externalId } = await publishToPlatform(target.platform, account.handle, {
-        platform: target.platform,
+      // Effective content for this platform: its own override, else the post base.
+      const type = (target.type ?? post.type) as PostType;
+      const media = (target.mediaFiles ? JSON.parse(target.mediaFiles) : JSON.parse(post.mediaFiles)) as StoredFile[];
+
+      if (!def.supports.includes(type)) {
+        throw new Error(`${def.name} does not support ${type} posts`);
+      }
+
+      const publisher = REAL_PUBLISHERS[target.platform];
+      if (!publisher) {
+        throw new Error(`${def.name} integration is not yet available`);
+      }
+      if (!account.accessToken || !account.externalUserId) {
+        throw new Error(`${def.name} account isn't OAuth-connected — reconnect it on the Users page`);
+      }
+
+      validateMediaForPlatform(def, type, media);
+      const fresh = await ensureFreshToken(account);
+      const { url, externalId } = await publisher({
+        account: fresh,
+        type,
+        media,
+        mediaUrls: () => media.map(publicMediaUrl),
+        caption: [target.adaptedTitle, target.adaptedBody].filter(Boolean).join("\n\n"),
         title: target.adaptedTitle,
-        body: target.adaptedBody,
         firstComment: target.firstComment,
-        warnings: [],
       });
       await db.postTarget.update({
         where: { id: target.id },
         data: { status: "published", externalUrl: url, externalId, publishedAt: new Date(), error: null },
       });
-      // Seed a starting metrics row so analytics has data immediately
-      await db.postMetric.create({
-        data: {
-          targetId: target.id,
-          views: 50 + Math.floor(Math.random() * 400),
-          likes: 5 + Math.floor(Math.random() * 60),
-          comments: Math.floor(Math.random() * 12),
-          shares: Math.floor(Math.random() * 8),
-        },
-      });
       results.push({ platform: target.platform, success: true, url });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Publish failed";
+      // Expired/revoked tokens flip the account so the UI prompts a reconnect.
+      if (err instanceof TokenExpiredError && account) {
+        await db.socialAccount
+          .update({ where: { id: account.id }, data: { status: "needs_reauth" } })
+          .catch(() => {});
+      }
       await db.postTarget.update({
         where: { id: target.id },
         data: { status: "failed", error: message },

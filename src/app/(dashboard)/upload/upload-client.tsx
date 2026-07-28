@@ -3,6 +3,9 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PlatformIcon } from "@/components/PlatformIcon";
+import { SchedulePicker } from "@/components/SchedulePicker";
+import { Select } from "@/components/Select";
+import { MediaEditor, MediaValue, mediaValueToStored } from "@/components/MediaEditor";
 import { CodeBlock } from "@/components/CodeBlock";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { PLATFORMS, PLATFORM_MAP, adaptContent, graphemeLength, PostType } from "@/lib/platforms";
@@ -16,6 +19,61 @@ interface ProfileOpt {
 type Method = "file" | "url" | "text";
 type Submission = "now" | "schedule" | "queue" | "draft";
 
+// Date -> value accepted by <input type="datetime-local"> in local time.
+function toLocalInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+const SCHEDULE_PRESETS: { label: string; get: () => Date }[] = [
+  {
+    label: "In 1 hour",
+    get: () => {
+      const d = new Date(Date.now() + 60 * 60 * 1000);
+      d.setSeconds(0, 0);
+      return d;
+    },
+  },
+  {
+    label: "Tomorrow 9:00",
+    get: () => {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(9, 0, 0, 0);
+      return d;
+    },
+  },
+  {
+    label: "Tomorrow 18:00",
+    get: () => {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(18, 0, 0, 0);
+      return d;
+    },
+  },
+  {
+    label: "Monday 9:00",
+    get: () => {
+      const d = new Date();
+      d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7));
+      d.setHours(9, 0, 0, 0);
+      return d;
+    },
+  },
+];
+
+function relativeLabel(d: Date): string {
+  const mins = Math.max(1, Math.round((d.getTime() - Date.now()) / 60000));
+  if (mins < 60) return `in ${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (mins < 48 * 60) {
+    return m === 0 ? `in ${h} hour${h === 1 ? "" : "s"}` : `in ${h} hr ${m} min`;
+  }
+  return `in ${Math.round(mins / (24 * 60))} days`;
+}
+
 export function UploadClient({ profiles }: { profiles: ProfileOpt[] }) {
   const [tab, setTab] = useState<"manual" | "shorts">("manual");
   const [profileId, setProfileId] = useState(profiles[0]?.id ?? "");
@@ -27,10 +85,12 @@ export function UploadClient({ profiles }: { profiles: ProfileOpt[] }) {
   const [firstComment, setFirstComment] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
+  // Optional per-platform media (its own type + files), replacing the base media
+  // for that platform — e.g. a video for TikTok while the rest get the base photos.
+  const [mediaOverrides, setMediaOverrides] = useState<Record<string, { type: PostType; media: MediaValue }>>({});
   const [expandedPlatform, setExpandedPlatform] = useState<string | null>(null);
   const [submission, setSubmission] = useState<Submission>("now");
   const [scheduledAt, setScheduledAt] = useState("");
-  const [asyncUpload, setAsyncUpload] = useState(true);
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; details?: { platform: string; success: boolean; url?: string; error?: string }[] } | null>(null);
@@ -103,6 +163,14 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
     }
     for (const f of files) form.append("media", f);
 
+    // Per-platform media overrides, for selected platforms only.
+    const perPlatform = Object.fromEntries(
+      selected
+        .filter((p) => mediaOverrides[p])
+        .map((p) => [p, { type: mediaOverrides[p].type, media: mediaValueToStored(mediaOverrides[p].media) }])
+    );
+    form.set("perPlatform", JSON.stringify(perPlatform));
+
     const res = await fetch("/api/internal/posts", { method: "POST", body: form });
     const data = await res.json();
     setBusy(false);
@@ -122,12 +190,27 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
         message:
           submission === "draft"
             ? "Saved as draft."
-            : `Scheduled for ${new Date(data.scheduledAt).toLocaleString()}`,
+            : `Scheduled for ${new Date(data.scheduledAt).toLocaleString(undefined, {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+                hour: "numeric",
+                minute: "2-digit",
+              })}`,
       });
     }
   }
 
   const typeLabel = postType === "video" ? "Video" : postType === "photos" ? "Photos" : "Post";
+  // Video/photo posts must actually carry media — a submit without it would
+  // only fail later at publish time.
+  const mediaMissing =
+    postType !== "text" &&
+    files.length === 0 &&
+    !(method === "url" && mediaUrls.trim().length > 0);
+  const scheduleBlocked =
+    submission === "schedule" &&
+    (!scheduledAt || isNaN(Date.parse(scheduledAt)) || Date.parse(scheduledAt) <= Date.now());
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
@@ -174,11 +257,12 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
               <label className="label" htmlFor="profile">Select Profile</label>
               <span className="text-xs text-slate-400">Content will be posted using this profile&apos;s connected accounts.</span>
             </div>
-            <select id="profile" className="input" value={profileId} onChange={(e) => { setProfileId(e.target.value); setSelected([]); }}>
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+            <Select
+              ariaLabel="Profile"
+              value={profileId}
+              onChange={(v) => { setProfileId(v); setSelected([]); }}
+              options={profiles.map((p) => ({ value: p.id, label: p.name }))}
+            />
             <p className="mt-1 text-xs text-slate-400">
               Connected: {profile?.connected.map((c) => c.platform).join(", ") || "none — connect accounts in User Management"}
             </p>
@@ -368,6 +452,57 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
                           onChange={(e) => setOverrides({ ...overrides, [`${pl.id}_description`]: e.target.value })}
                         />
                       </label>
+
+                      {/* Per-platform media override */}
+                      {(() => {
+                        const pts = (["text", "photos", "video"] as PostType[]).filter((t) => pl.supports.includes(t));
+                        const ov = mediaOverrides[pl.id];
+                        return (
+                          <div className="border-t border-slate-100 dark:border-slate-800 pt-2">
+                            <label className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(ov)}
+                                onChange={(e) =>
+                                  setMediaOverrides((m) => {
+                                    const next = { ...m };
+                                    if (e.target.checked) next[pl.id] = { type: pts[0] ?? "photos", media: { media: [], urls: "" } };
+                                    else delete next[pl.id];
+                                    return next;
+                                  })
+                                }
+                                className="accent-emerald-600"
+                              />
+                              Use different media for {pl.name}
+                            </label>
+                            {ov && (
+                              <div className="mt-2 space-y-2">
+                                <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5">
+                                  {pts.map((t) => (
+                                    <button
+                                      key={t}
+                                      onClick={() => setMediaOverrides((m) => ({ ...m, [pl.id]: { ...m[pl.id], type: t } }))}
+                                      className={`rounded-md px-2.5 py-0.5 text-[11px] font-semibold capitalize transition-colors cursor-pointer ${
+                                        ov.type === t ? "bg-emerald-600 text-white" : "text-slate-500 dark:text-slate-400"
+                                      }`}
+                                    >
+                                      {t}
+                                    </button>
+                                  ))}
+                                </div>
+                                {ov.type !== "text" && (
+                                  <MediaEditor
+                                    kind={ov.type === "video" ? "video" : "photos"}
+                                    value={ov.media}
+                                    onChange={(v) => setMediaOverrides((m) => ({ ...m, [pl.id]: { ...m[pl.id], media: v } }))}
+                                    onError={(msg) => setResult({ ok: false, message: msg })}
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -388,14 +523,6 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
             </span>
           </div>
 
-          <label className="mt-4 flex items-start gap-2.5 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
-            <input type="checkbox" checked={asyncUpload} onChange={(e) => setAsyncUpload(e.target.checked)} className="mt-0.5 accent-emerald-600" />
-            <span>
-              <strong>Async upload</strong>
-              <span className="block text-xs text-slate-400">If enabled, uploads are queued and processed asynchronously.</span>
-            </span>
-          </label>
-
           <div className="mt-4 space-y-3">
             <label className="flex items-start gap-2.5 text-sm cursor-pointer">
               <input type="radio" name="submission" checked={submission === "now"} onChange={() => setSubmission("now")} className="mt-1 accent-emerald-600" />
@@ -403,18 +530,57 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
             </label>
             <label className="flex items-start gap-2.5 text-sm cursor-pointer">
               <input type="radio" name="submission" checked={submission === "schedule"} onChange={() => setSubmission("schedule")} className="mt-1 accent-emerald-600" />
-              <span className="flex-1 text-slate-700 dark:text-slate-300">
-                <strong>Schedule Post</strong>
-                {submission === "schedule" && (
-                  <span className="mt-2 block">
-                    <input type="datetime-local" className="input" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
-                    <span className="mt-1 block text-xs text-slate-400">
-                      Your timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}. Your scheduled time will be interpreted in this timezone.
-                    </span>
-                  </span>
-                )}
-              </span>
+              <span className="text-slate-700 dark:text-slate-300"><strong>Schedule Post</strong></span>
             </label>
+            {submission === "schedule" && (
+              // Sibling of the label, not inside it — nesting buttons/dialogs in a
+              // <label> breaks the radio's accessible name and click forwarding.
+              <div className="ml-7">
+                <div className="flex flex-wrap gap-1.5">
+                  {SCHEDULE_PRESETS.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => setScheduledAt(toLocalInput(p.get()))}
+                      className="rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-2 sm:py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:border-emerald-400 hover:text-emerald-700 dark:hover:border-emerald-600 dark:hover:text-emerald-300 transition-colors cursor-pointer"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2">
+                  <SchedulePicker value={scheduledAt} onChange={setScheduledAt} />
+                </div>
+                <div aria-live="polite">
+                  {scheduledAt && !isNaN(Date.parse(scheduledAt)) ? (
+                    Date.parse(scheduledAt) <= Date.now() ? (
+                      <p role="alert" className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
+                        That time is in the past — pick a future time.
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                        Publishes{" "}
+                        {new Date(scheduledAt).toLocaleString(undefined, {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}{" "}
+                        ({relativeLabel(new Date(scheduledAt))})
+                      </p>
+                    )
+                  ) : (
+                    <p className="mt-1 text-xs text-slate-400">
+                      Tap a preset or pick a date and time.
+                    </p>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Times are in your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}).
+                </p>
+              </div>
+            )}
             <label className="flex items-start gap-2.5 text-sm cursor-pointer">
               <input type="radio" name="submission" checked={submission === "queue"} onChange={() => setSubmission("queue")} className="mt-1 accent-emerald-600" />
               <span className="text-slate-700 dark:text-slate-300">
@@ -448,7 +614,7 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
 
           <button
             onClick={submit}
-            disabled={busy || selected.length === 0 || (!title && !description)}
+            disabled={busy || selected.length === 0 || (!title && !description) || scheduleBlocked || mediaMissing}
             className="btn-primary mt-5 w-full py-3"
           >
             {busy
@@ -459,6 +625,11 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
                   ? `Upload ${typeLabel} to ${selected.length} Platform${selected.length === 1 ? "" : "s"}`
                   : `Schedule ${typeLabel} for ${selected.length} Platform${selected.length === 1 ? "" : "s"}`}
           </button>
+          {mediaMissing && (
+            <p className="mt-2 text-center text-xs font-medium text-amber-600 dark:text-amber-400">
+              Attach a media file (or media URL) before {submission === "now" ? "publishing" : "scheduling"}.
+            </p>
+          )}
         </section>
       </div>
 
@@ -479,8 +650,7 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
             )}
           </div>
           <p className="mt-2 text-xs text-slate-400">
-            {submission === "now" ? "Post immediately" : submission === "queue" ? "Queued to next slot" : submission === "draft" ? "Draft" : scheduledAt ? `Scheduled ${new Date(scheduledAt).toLocaleString()}` : "Scheduled"}
-            {asyncUpload && <span className="ml-1 rounded bg-slate-100 dark:bg-slate-800 px-1 py-0.5 text-[10px]">Async</span>}
+            {submission === "now" ? "Post immediately" : submission === "queue" ? "Queued to next slot" : submission === "draft" ? "Draft" : scheduledAt ? `Scheduled ${new Date(scheduledAt).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "Scheduled"}
             {" · "}{method === "text" ? "Text-only" : files.length ? `${files.length} attached file${files.length > 1 ? "s" : ""}` : "Attached File"}
           </p>
           <div className="mt-3 border-t border-slate-100 dark:border-slate-800 pt-3">

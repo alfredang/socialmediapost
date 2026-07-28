@@ -1,25 +1,21 @@
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { verifyProfileJwt } from "@/lib/session";
+import { NextResponse } from "next/server";
 
-// POST — whitelabel end-user connects a social account via JWT link
-export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({}));
-  const payload = await verifyProfileJwt(String(body.token ?? ""));
-  if (!payload) return NextResponse.json({ success: false, error: "Invalid or expired link" }, { status: 401 });
-
-  const profile = await db.profile.findUnique({
-    where: { accountId_name: { accountId: payload.accountId, name: payload.profile } },
-  });
-  if (!profile) return NextResponse.json({ success: false, error: "Profile not found" }, { status: 404 });
-
-  const handle = String(body.handle ?? "").trim().replace(/^@/, "");
-  if (!handle) return NextResponse.json({ success: false, error: "Handle required" }, { status: 400 });
-
-  await db.socialAccount.upsert({
-    where: { profileId_platform: { profileId: profile.id, platform: String(body.platform) } },
-    update: { handle, status: "connected" },
-    create: { profileId: profile.id, platform: String(body.platform), handle, displayName: handle },
-  });
-  return NextResponse.json({ success: true });
+// Gone on purpose.
+//
+// This endpoint used to create a "connected" SocialAccount from a handle the
+// visitor typed in. That account carried no OAuth token, so it looked connected
+// throughout the UI while every publish attempt against it failed.
+//
+// Whitelabel users now go through the real provider OAuth instead:
+//   GET /api/auth/<platform>?connect_token=<profile JWT>
+// which is what the buttons on /connect link to.
+export async function POST() {
+  return NextResponse.json(
+    {
+      success: false,
+      error:
+        "Accounts can only be connected through platform OAuth. Open your connect link and use the Connect buttons.",
+    },
+    { status: 410 }
+  );
 }

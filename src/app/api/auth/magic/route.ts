@@ -3,15 +3,17 @@ import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/session";
+import { appBaseUrl } from "@/lib/base-url";
 
 // GET /api/auth/magic?token=... — magic-link sign in
 export async function GET(req: NextRequest) {
+  const base = appBaseUrl(req.nextUrl.origin);
   const token = req.nextUrl.searchParams.get("token");
-  if (!token) return NextResponse.redirect(new URL("/login?error=missing-token", req.url));
+  if (!token) return NextResponse.redirect(new URL("/login?error=missing-token", base));
 
   const otp = await db.otpCode.findUnique({ where: { token } });
   if (!otp || otp.usedAt || otp.expiresAt < new Date()) {
-    return NextResponse.redirect(new URL("/login?error=expired-link", req.url));
+    return NextResponse.redirect(new URL("/login?error=expired-link", base));
   }
   await db.otpCode.update({ where: { id: otp.id }, data: { usedAt: new Date() } });
 
@@ -26,5 +28,5 @@ export async function GET(req: NextRequest) {
     });
   }
   await createSession(account.id);
-  return NextResponse.redirect(new URL("/users", req.url));
+  return NextResponse.redirect(new URL("/users", base));
 }

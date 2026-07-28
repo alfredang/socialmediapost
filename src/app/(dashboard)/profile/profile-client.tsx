@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Select } from "@/components/Select";
 
 function Card({ icon, title, desc, children }: { icon: string; title: string; desc: string; children?: React.ReactNode }) {
   return (
@@ -97,18 +98,19 @@ export function ProfileClient({
       </Card>
 
       <Card icon="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" title="Calendar Preferences" desc="Choose which day your calendar week starts on.">
-        <select
-          className="input w-36"
+        <Select
+          className="w-36"
+          ariaLabel="Week start day"
           value={week}
-          onChange={async (e) => {
-            setWeek(e.target.value);
-            await patch({ calendarWeekStart: e.target.value });
+          onChange={async (v) => {
+            setWeek(v);
+            await patch({ calendarWeekStart: v });
           }}
-          aria-label="Week start day"
-        >
-          <option value="monday">Monday</option>
-          <option value="sunday">Sunday</option>
-        </select>
+          options={[
+            { value: "monday", label: "Monday" },
+            { value: "sunday", label: "Sunday" },
+          ]}
+        />
       </Card>
 
       <section className="card p-6">

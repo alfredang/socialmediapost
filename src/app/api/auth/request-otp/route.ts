@@ -1,11 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes, randomInt } from "crypto";
 import { db } from "@/lib/db";
+import { appBaseUrl } from "@/lib/base-url";
+import { emailConfigured, sendOtpEmail } from "@/lib/mail";
 
-// POST /api/auth/request-otp — { email } → sends a 6-digit code + magic link.
-// Without SMTP configured (dev), the code is returned in the response so the
-// flow works out of the box.
+// POST /api/auth/request-otp — { email } → emails a 6-digit code + magic link.
+// Mail delivery is mandatory: the code only ever leaves this server by email.
+// Returning it in the response would let anyone sign in as any address.
 export async function POST(req: NextRequest) {
+  if (!emailConfigured()) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "Email delivery is not configured — set BREVO_API_KEY or SMTP_HOST before using email sign-in.",
+      },
+      { status: 503 }
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
   const email = String(body.email ?? "").trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
@@ -26,16 +39,19 @@ export async function POST(req: NextRequest) {
     data: { email, code, token, expiresAt: new Date(Date.now() + 10 * 60000) },
   });
 
-  const magicLink = `${req.nextUrl.origin}/api/auth/magic?token=${token}`;
-  console.log(`[auth] OTP for ${email}: ${code} — magic link: ${magicLink}`);
+  const magicLink = `${appBaseUrl(req.nextUrl.origin)}/api/auth/magic?token=${token}`;
 
-  // TODO: send via SMTP/Resend when EMAIL_* env vars are configured.
-  const devMode = !process.env.SMTP_HOST;
+  try {
+    await sendOtpEmail(email, code, magicLink);
+  } catch (err) {
+    console.error("[auth] OTP send failed:", err);
+    return NextResponse.json(
+      { success: false, error: "Could not send the email. Please try again." },
+      { status: 502 }
+    );
+  }
   return NextResponse.json({
     success: true,
-    message: devMode
-      ? "Email sending is not configured — use the code below (dev mode)."
-      : "Check your inbox for the sign-in code and magic link.",
-    ...(devMode ? { dev_code: code, dev_magic_link: magicLink } : {}),
+    message: "Check your inbox for the sign-in code and magic link.",
   });
 }

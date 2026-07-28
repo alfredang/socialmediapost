@@ -22,7 +22,14 @@ const COLUMNS = [
     title: "Support",
     links: [
       { href: "/support", label: "Help Center" },
-      { href: "/support", label: "Leave a review ⭐" },
+      { href: "/support", label: "Leave a review" },
+    ],
+  },
+  {
+    title: "Legal",
+    links: [
+      { href: "/terms", label: "Terms of Service" },
+      { href: "/privacy", label: "Privacy Policy" },
     ],
   },
 ];
@@ -30,7 +37,7 @@ const COLUMNS = [
 export function Footer() {
   return (
     <footer className="mt-auto border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-      <div className="mx-auto max-w-7xl px-4 py-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mx-auto max-w-7xl px-4 py-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-5">
         <div>
           <p className="text-lg font-extrabold text-slate-900 dark:text-white">
             Social<span className="text-emerald-600 dark:text-emerald-400">Post</span>
@@ -55,11 +62,11 @@ export function Footer() {
           </div>
         ))}
       </div>
-      <div className="border-t border-slate-100 dark:border-slate-900 py-4 text-center text-xs text-slate-400">
+      <div className="border-t border-slate-100 dark:border-slate-900 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
         <p>© {new Date().getFullYear()} SocialPost. All rights reserved.</p>
         <p className="powered-by mt-1">
           Powered by{" "}
-          <a href="https://www.tertiaryinfotech.com/" target="_blank" rel="noopener" className="hover:text-emerald-500 underline">
+          <a href="https://www.tertiaryinfotech.com/" target="_blank" rel="noopener" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors underline">
             Tertiary Infotech Academy Pte Ltd
           </a>
         </p>

@@ -3,11 +3,14 @@ import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/session";
+import { appBaseUrl } from "@/lib/base-url";
 
 // GET /api/auth/google/callback — completes the real Google OAuth flow
 export async function GET(req: NextRequest) {
+  const base = appBaseUrl(req.nextUrl.origin);
+
   const code = req.nextUrl.searchParams.get("code");
-  if (!code) return NextResponse.redirect(new URL("/login?error=google-denied", req.url));
+  if (!code) return NextResponse.redirect(new URL("/login?error=google-denied", base));
 
   try {
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -17,7 +20,7 @@ export async function GET(req: NextRequest) {
         code,
         client_id: process.env.GOOGLE_CLIENT_ID!,
         client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        redirect_uri: `${req.nextUrl.origin}/api/auth/google/callback`,
+        redirect_uri: `${base}/api/auth/google/callback`,
         grant_type: "authorization_code",
       }),
     });
@@ -40,8 +43,8 @@ export async function GET(req: NextRequest) {
       });
     }
     await createSession(account.id);
-    return NextResponse.redirect(new URL("/users", req.url));
+    return NextResponse.redirect(new URL("/users", base));
   } catch {
-    return NextResponse.redirect(new URL("/login?error=google-failed", req.url));
+    return NextResponse.redirect(new URL("/login?error=google-failed", base));
   }
 }

@@ -1,4 +1,4 @@
-import { getSessionAccount } from "@/lib/session";
+import { requireSessionAccount } from "@/lib/session";
 import { db } from "@/lib/db";
 import { UploadClient } from "./upload-client";
 
@@ -6,7 +6,7 @@ export const metadata = { title: "Upload" };
 export const dynamic = "force-dynamic";
 
 export default async function UploadPage() {
-  const account = (await getSessionAccount())!;
+  const account = await requireSessionAccount();
   const profiles = await db.profile.findMany({
     where: { accountId: account.id },
     include: { socialAccounts: true },

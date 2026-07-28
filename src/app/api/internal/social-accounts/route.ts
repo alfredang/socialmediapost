@@ -1,31 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/internal-auth";
-import { PLATFORM_MAP } from "@/lib/platforms";
+import { fetchPageDirect } from "@/lib/facebook";
 
-// POST — simulate the OAuth connect flow for a platform
-export async function POST(req: NextRequest) {
-  const auth = await requireSession();
-  if (auth instanceof NextResponse) return auth;
+// Accounts are only created via the real OAuth flows (/api/auth/<platform>).
 
-  const body = await req.json().catch(() => ({}));
-  const { profileId, platform, handle } = body;
-  if (!PLATFORM_MAP[platform]) {
-    return NextResponse.json({ success: false, error: "Unknown platform" }, { status: 400 });
-  }
-  const profile = await db.profile.findFirst({ where: { id: profileId, accountId: auth } });
-  if (!profile) return NextResponse.json({ success: false, error: "Profile not found" }, { status: 404 });
-
-  const cleanHandle = String(handle ?? profile.name).trim().replace(/^@/, "") || profile.name;
-  const account = await db.socialAccount.upsert({
-    where: { profileId_platform: { profileId, platform } },
-    update: { handle: cleanHandle, status: "connected" },
-    create: { profileId, platform, handle: cleanHandle, displayName: cleanHandle },
-  });
-  return NextResponse.json({ success: true, account });
-}
-
-// PATCH — fix a needs_reauth account
+// PATCH — fix a needs_reauth account, or { id, pageId } to finish a Facebook
+// connection by picking which managed Page to publish to.
 export async function PATCH(req: NextRequest) {
   const auth = await requireSession();
   if (auth instanceof NextResponse) return auth;
@@ -35,8 +16,52 @@ export async function PATCH(req: NextRequest) {
     where: { id: body.id ?? "", profile: { accountId: auth } },
   });
   if (!account) return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
-  await db.socialAccount.update({ where: { id: account.id }, data: { status: "connected" } });
-  return NextResponse.json({ success: true });
+
+  if (body.pageId) {
+    if (account.platform !== "facebook" || !account.meta) {
+      return NextResponse.json({ success: false, error: "Not a Facebook connection" }, { status: 400 });
+    }
+    const meta = JSON.parse(account.meta) as {
+      userToken?: string;
+      pages?: { id: string; name: string; access_token: string }[];
+    };
+    let page = meta.pages?.find((p) => p.id === body.pageId);
+    if (!page && meta.userToken) {
+      // /me/accounts came back empty for this account — resolve the Page
+      // directly by ID with the stored user token.
+      try {
+        page = await fetchPageDirect(meta.userToken, String(body.pageId).trim());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not access that Page";
+        return NextResponse.json({ success: false, error: message }, { status: 400 });
+      }
+    }
+    if (!page) return NextResponse.json({ success: false, error: "Page not found" }, { status: 404 });
+    await db.socialAccount.update({
+      where: { id: account.id },
+      data: {
+        handle: page.name,
+        displayName: page.name,
+        externalUserId: page.id,
+        accessToken: page.access_token,
+        status: "connected",
+      },
+    });
+    return NextResponse.json({ success: true });
+  }
+
+  // A needs_reauth account cannot be "fixed" by flipping the flag: the stored
+  // token is expired or revoked, so marking it connected would only make the
+  // UI lie until the next publish failed. Reconnecting via OAuth is the fix.
+  return NextResponse.json(
+    {
+      success: false,
+      error: `Reconnect this ${account.platform} account to get a fresh token — its previous authorization is no longer valid.`,
+      reconnect: true,
+      platform: account.platform,
+    },
+    { status: 409 }
+  );
 }
 
 export async function DELETE(req: NextRequest) {

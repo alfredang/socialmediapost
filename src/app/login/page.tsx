@@ -1,9 +1,18 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { LogoMark } from "@/components/Logo";
+
+const URL_ERRORS: Record<string, string> = {
+  "expired-link": "That magic link has expired or was already used. Request a new code.",
+  "missing-token": "That magic link is incomplete. Request a new code.",
+  "google-denied": "Google sign-in was cancelled.",
+  "google-failed": "Google sign-in failed. Please try again.",
+  "google-not-configured":
+    "Google sign-in isn't configured on this server — use an email code or password instead.",
+};
 
 function LoginForm() {
   const params = useSearchParams();
@@ -11,12 +20,23 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [step, setStep] = useState<"email" | "code">("email");
   const [code, setCode] = useState("");
-  const [devCode, setDevCode] = useState<string | null>(null);
-  const [devLink, setDevLink] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(
-    params.get("error") ? "Sign-in failed. Please try again." : null
-  );
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => {
+    const e = params.get("error");
+    return e ? URL_ERRORS[e] ?? "Sign-in failed. Please try again." : null;
+  });
   const [busy, setBusy] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+  const [method, setMethod] = useState<"code" | "password">("code");
+  const [pwMode, setPwMode] = useState<"signin" | "signup">("signin");
+  const [password, setPassword] = useState("");
+
+  // Tick down the resend cooldown
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
 
   async function sendLink() {
     if (!accepted) return setError("Please accept the Terms of Use and Privacy Policy first.");
@@ -27,11 +47,12 @@ function LoginForm() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email }),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({ success: false, error: "Something went wrong. Please try again." }));
     setBusy(false);
     if (!data.success) return setError(data.error);
-    setDevCode(data.dev_code ?? null);
-    setDevLink(data.dev_magic_link ?? null);
+    setMessage(data.message ?? null);
+    setCode("");
+    setResendIn(30);
     setStep("code");
   }
 
@@ -44,6 +65,21 @@ function LoginForm() {
       body: JSON.stringify({ email, code }),
     });
     const data = await res.json();
+    setBusy(false);
+    if (!data.success) return setError(data.error);
+    window.location.href = "/users";
+  }
+
+  async function passwordAuth() {
+    if (!accepted) return setError("Please accept the Terms of Use and Privacy Policy first.");
+    setBusy(true);
+    setError(null);
+    const res = await fetch(pwMode === "signin" ? "/api/auth/login" : "/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({ success: false, error: "Something went wrong. Please try again." }));
     setBusy(false);
     if (!data.success) return setError(data.error);
     window.location.href = "/users";
@@ -105,7 +141,50 @@ function LoginForm() {
           <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
         </div>
 
-        {step === "email" ? (
+        {method === "password" ? (
+          <>
+            <label className="label" htmlFor="email">Email address</label>
+            <input
+              id="email"
+              type="email"
+              className="input"
+              placeholder="name@company.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <label className="label mt-4" htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              className="input"
+              placeholder={pwMode === "signup" ? "At least 8 characters" : "Your password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && passwordAuth()}
+            />
+            <button
+              onClick={passwordAuth}
+              disabled={busy || !email || !password}
+              className="btn-primary mt-4 w-full py-3"
+            >
+              {busy ? "Please wait…" : pwMode === "signin" ? "Sign in" : "Create account"}
+            </button>
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <button
+                onClick={() => { setPwMode(pwMode === "signin" ? "signup" : "signin"); setError(null); }}
+                className="text-slate-500 hover:text-emerald-600 cursor-pointer"
+              >
+                {pwMode === "signin" ? "New here? Create account" : "Have an account? Sign in"}
+              </button>
+              <button
+                onClick={() => { setMethod("code"); setError(null); }}
+                className="text-slate-500 hover:text-emerald-600 cursor-pointer"
+              >
+                Use email code instead
+              </button>
+            </div>
+          </>
+        ) : step === "email" ? (
           <>
             <label className="label" htmlFor="email">Email address</label>
             <input
@@ -120,23 +199,24 @@ function LoginForm() {
             <button onClick={sendLink} disabled={busy || !email} className="btn-primary mt-4 w-full py-3">
               {busy ? "Sending…" : "Send magic link →"}
             </button>
-            <p className="mt-3 text-center text-xs text-slate-400">
-              New here? Signing in creates your free account automatically.
-            </p>
+            <div className="mt-3 flex items-center justify-between text-xs">
+              <span className="text-slate-400">New here? Signing in creates your free account.</span>
+              <button
+                onClick={() => { setMethod("password"); setError(null); }}
+                className="text-slate-500 hover:text-emerald-600 cursor-pointer shrink-0"
+              >
+                Use a password instead
+              </button>
+            </div>
           </>
         ) : (
           <>
             <p className="text-sm text-slate-600 dark:text-slate-300">
               We sent a 6-digit code and a magic link to <strong>{email}</strong>.
             </p>
-            {devCode && (
-              <p className="mt-2 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
-                Dev mode (no SMTP configured) — your code is <strong className="tracking-widest">{devCode}</strong>
-                {devLink && (
-                  <>
-                    {" "}or use the <a className="underline" href={devLink}>magic link</a>.
-                  </>
-                )}
+            {message && (
+              <p className="mt-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm text-slate-600 dark:text-slate-300">
+                {message}
               </p>
             )}
             <label className="label mt-4" htmlFor="code">Enter code</label>
@@ -153,16 +233,21 @@ function LoginForm() {
             <button onClick={verify} disabled={busy || code.length !== 6} className="btn-primary mt-4 w-full py-3">
               {busy ? "Verifying…" : "Verify & sign in"}
             </button>
-            <button onClick={() => setStep("email")} className="mt-3 w-full text-center text-sm text-slate-500 hover:text-emerald-600 cursor-pointer">
-              ← Use a different email
-            </button>
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <button onClick={() => setStep("email")} className="text-slate-500 hover:text-emerald-600 cursor-pointer">
+                ← Use a different email
+              </button>
+              <button
+                onClick={sendLink}
+                disabled={busy || resendIn > 0}
+                className="text-slate-500 hover:text-emerald-600 disabled:opacity-50 disabled:hover:text-slate-500 cursor-pointer disabled:cursor-default"
+              >
+                {resendIn > 0 ? `Resend code (${resendIn}s)` : "Resend code"}
+              </button>
+            </div>
           </>
         )}
       </div>
-
-      <p className="mt-6 text-sm text-slate-500 dark:text-slate-400">
-        Demo account: <code className="font-mono">demo@example.com</code> (request a code)
-      </p>
     </div>
   );
 }

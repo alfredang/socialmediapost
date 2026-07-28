@@ -11,25 +11,31 @@
 - **One API call, every platform** — `POST /api/upload` (video), `/api/upload_video` (alias), `/api/upload_photos`, `/api/upload_text`, `/api/uploadposts/upload-document` (LinkedIn docs)
 - **Auto-adapts content per platform** — grapheme-aware truncation (emoji count correctly 🚀), hashtags → first comment on Instagram, X weighted 280, per-platform `<platform>_title` overrides
 - **Scheduling & automation** — ISO-8601 scheduling, per-profile posting queues (timezone, active days, slots), calendar (month/week/day), recurring **content pipelines**, in-process 30s scheduler
-- **Analytics & metrics API** — followers/reach/impressions/engagement per platform, time-series charts (Recharts), CSV export, per-post metrics
+- **Analytics & metrics API** — followers/reach/impressions/engagement pulled from each platform's own API, time-series charts (Recharts), CSV export, per-post metrics
 - **Whitelabel** — profiles API (`user` param), JWT connect-links so your customers link accounts under your brand
 - **Full API management** — named API keys (hashed, shown once), request logging, per-plan quotas (429), FFmpeg processing quota, idempotency keys
 - **Auth** — Google OAuth + email magic-link/OTP (passwordless), like modern SaaS
 - **AI copy assistant** — captions + hashtags (uses `ANTHROPIC_API_KEY` if set, offline heuristic otherwise)
 - **Dark/light theme**, sidebar dashboard, notifications, team management, simulated billing with invoices
 
-> Platform connectors are **simulated** behind a clean `publish()` adapter (`src/lib/platforms.ts`) — drop in each network's real API call to go live. Everything else (auth, quotas, scheduling, queues, pipelines, analytics storage, whitelabel JWTs) is fully functional.
+> **What's real:** Instagram, Facebook, LinkedIn and TikTok publish through their live APIs with OAuth tokens; the other platforms in the registry carry constraints/adaptation rules only and fail with a clear "integration is not yet available" rather than pretending to post. Analytics are collected from the same four APIs — nothing is generated, and a metric a platform won't expose is stored as `NULL`, not `0`. Billing is still **simulated** (plan switches mint invoices without charging anything).
 
 ## Quick start
 
 ```bash
 npm install
-npx prisma migrate dev      # creates prisma/dev.db
-npx prisma db seed          # demo + admin accounts, sample data
+npx prisma migrate dev      # applies migrations
+
+# Optional bootstrap account — opt-in, and you supply the credentials.
+# Without SEED_ADMIN_PASSWORD / SEED_ADMIN_API_KEY, random ones are printed once.
+SEED_DEMO_DATA=true SEED_ADMIN_EMAIL=you@example.com npx prisma db seed
+
 npm run dev                 # http://localhost:3000
 ```
 
-**Sign in:** enter your email on `/login` → in dev mode the 6-digit code is shown on screen (no SMTP needed). Seeded accounts: `demo@example.com` and `angch@tertiaryinfotech.com` (admin).
+**Sign in:** register with a password on `/login`, or use an email code — email sign-in needs `BREVO_API_KEY` or `SMTP_HOST` configured, since codes are only ever delivered by email.
+
+> Upgrading an existing install? The old seed wrote demo accounts (with credentials published in this repo), fake published posts and generated analytics into your database. `npx tsx prisma/purge-demo-data.ts` reports them; add `--apply` to remove them.
 
 ## The lead magnet
 

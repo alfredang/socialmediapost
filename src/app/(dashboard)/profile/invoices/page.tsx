@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getSessionAccount } from "@/lib/session";
+import { requireSessionAccount } from "@/lib/session";
 import { db } from "@/lib/db";
 import { StatusBadge } from "@/components/StatusBadge";
 
@@ -7,7 +7,7 @@ export const metadata = { title: "Invoices" };
 export const dynamic = "force-dynamic";
 
 export default async function InvoicesPage() {
-  const account = (await getSessionAccount())!;
+  const account = await requireSessionAccount();
   const invoices = await db.invoice.findMany({
     where: { accountId: account.id },
     orderBy: { createdAt: "desc" },

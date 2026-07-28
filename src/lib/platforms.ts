@@ -1,5 +1,6 @@
 // Platform registry: constraints + content adaptation for every supported network.
-// publish() is simulated; swap the body with a real API call per platform to go live.
+// Real publishing lives in src/lib/publishers.ts — platforms without an entry
+// there are listed for their constraints/adaptation rules but cannot publish yet.
 
 export type PostType = "video" | "photos" | "text" | "document";
 
@@ -46,6 +47,75 @@ export const PLATFORMS: PlatformDef[] = [
 export const PLATFORM_MAP: Record<string, PlatformDef> = Object.fromEntries(
   PLATFORMS.map((p) => [p.id, p])
 );
+
+// ── Analytics capability ─────────────────────────────────────────────────────
+// The metrics SocialPost can actually collect for each platform, in display
+// order. This is the single source of truth for the analytics dashboard and the
+// public platform-metrics API — a platform only shows the metrics listed here,
+// so nothing is rendered as an empty "—" column just because the grid has room.
+//
+// `source` says where the number comes from:
+//   account — the daily AnalyticsSnapshot (audience-level, e.g. followers)
+//   post    — summed across the period's published posts (engagement)
+//
+// Notable per-platform realities baked in here:
+//   * Instagram reports "views", NOT "impressions" — Meta removed the
+//     impressions metric from IG insights in Graph API v22 (2025).
+//   * TikTok exposes lifetime "Total Likes" at the account level; per-post
+//     engagement (views/comments/shares) comes from the video query API.
+//   * LinkedIn only exposes per-post likes/comments to non-partner apps —
+//     member follower/impression insights are gated, so there is no account row.
+
+export type MetricSource = "account" | "post";
+export type MetricKey =
+  | "followers"
+  | "reach"
+  | "impressions"
+  | "views"
+  | "likes"
+  | "comments"
+  | "shares";
+
+export interface AnalyticsMetric {
+  key: MetricKey;
+  label: string;
+  source: MetricSource;
+}
+
+export const ANALYTICS_METRICS: Record<string, AnalyticsMetric[]> = {
+  instagram: [
+    { key: "followers", label: "Followers", source: "account" },
+    { key: "reach", label: "Reach", source: "account" },
+    { key: "views", label: "Views", source: "account" },
+    { key: "likes", label: "Likes", source: "post" },
+    { key: "comments", label: "Comments", source: "post" },
+    { key: "shares", label: "Shares", source: "post" },
+  ],
+  facebook: [
+    { key: "followers", label: "Followers", source: "account" },
+    { key: "reach", label: "Reach", source: "account" },
+    { key: "impressions", label: "Impressions", source: "account" },
+    { key: "likes", label: "Likes", source: "post" },
+    { key: "comments", label: "Comments", source: "post" },
+    { key: "shares", label: "Shares", source: "post" },
+  ],
+  tiktok: [
+    { key: "followers", label: "Followers", source: "account" },
+    { key: "likes", label: "Total Likes", source: "account" },
+    { key: "views", label: "Views", source: "post" },
+    { key: "comments", label: "Comments", source: "post" },
+    { key: "shares", label: "Shares", source: "post" },
+  ],
+  linkedin: [
+    { key: "likes", label: "Likes", source: "post" },
+    { key: "comments", label: "Comments", source: "post" },
+  ],
+};
+
+// Metrics for a platform, or [] when SocialPost has no collector for it.
+export function analyticsMetricsFor(platformId: string): AnalyticsMetric[] {
+  return ANALYTICS_METRICS[platformId] ?? [];
+}
 
 export function platformsForType(type: PostType): PlatformDef[] {
   return PLATFORMS.filter((p) => p.supports.includes(type));
@@ -126,26 +196,30 @@ export function adaptContent(platformId: string, input: AdaptInput): AdaptedCont
   return { platform: platformId, title, body, firstComment, warnings };
 }
 
-// Simulated network publish. Replace with the platform's real API call.
-export async function publishToPlatform(
-  platformId: string,
-  handle: string,
-  adapted: AdaptedContent
-): Promise<{ url: string; externalId: string }> {
-  await new Promise((r) => setTimeout(r, 150 + Math.random() * 350));
-  const externalId = `${platformId}_${Math.random().toString(36).slice(2, 12)}`;
-  const urls: Record<string, string> = {
-    tiktok: `https://www.tiktok.com/@${handle}/video/${externalId}`,
-    instagram: `https://www.instagram.com/p/${externalId}/`,
-    youtube: `https://www.youtube.com/watch?v=${externalId}`,
-    linkedin: `https://www.linkedin.com/feed/update/urn:li:share:${externalId}`,
-    facebook: `https://www.facebook.com/${handle}/posts/${externalId}`,
-    x: `https://x.com/${handle}/status/${externalId}`,
-    threads: `https://www.threads.net/@${handle}/post/${externalId}`,
-    pinterest: `https://www.pinterest.com/pin/${externalId}/`,
-    reddit: `https://www.reddit.com/r/${handle}/comments/${externalId}/`,
-    bluesky: `https://bsky.app/profile/${handle}/post/${externalId}`,
-    mastodon: `https://mastodon.social/@${handle}/${externalId}`,
-  };
-  return { url: urls[platformId] ?? `https://${platformId}.example.com/${handle}/${externalId}`, externalId };
+// Media constraint checks that real platform APIs would reject anyway — fail
+// fast with a friendly message instead. Files with mime "url" are remote-URL
+// stubs whose real type is unknown, so mime checks skip them. videoMaxSeconds
+// cannot be checked here (StoredFile has no duration; no ffprobe available) —
+// the platform's own rejection lands in the target error instead.
+export function validateMediaForPlatform(
+  def: PlatformDef,
+  type: PostType,
+  media: { name: string; mime: string }[]
+): void {
+  if (type === "video") {
+    if (media.length === 0) throw new Error(`No video file to publish to ${def.name}`);
+    const bad = media[0].mime !== "url" && !media[0].mime.startsWith("video/");
+    if (bad) throw new Error(`"${media[0].name}" is not a video file`);
+  }
+  if (type === "photos") {
+    if (media.length === 0) throw new Error(`No photos to publish to ${def.name}`);
+    if (media.length > def.photosMax) {
+      throw new Error(`${def.name} allows at most ${def.photosMax} photos per post (got ${media.length})`);
+    }
+    const bad = media.find((f) => f.mime !== "url" && !f.mime.startsWith("image/"));
+    if (bad) throw new Error(`"${bad.name}" is not an image file`);
+  }
+  if (type === "document" && media.length === 0) {
+    throw new Error(`No document to publish to ${def.name}`);
+  }
 }

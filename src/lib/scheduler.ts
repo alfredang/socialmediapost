@@ -1,10 +1,10 @@
 import { db } from "./db";
 import { publishPost } from "./publish";
-import { createPost } from "./publish";
+import { createPost, pipelineItemContent } from "./publish";
 import { computeSlots } from "./queue";
+import { syncAllAnalytics } from "./analytics-sync";
 
-// One scheduler tick: publish due scheduled posts, run due pipeline slots,
-// and grow analytics snapshots once per day.
+// One scheduler tick: publish due scheduled posts and run due pipeline slots.
 export async function schedulerTick() {
   const now = new Date();
 
@@ -50,6 +50,7 @@ export async function schedulerTick() {
       description: item.description,
       platforms: JSON.parse(pipe.platforms),
       media: JSON.parse(item.mediaFiles),
+      perPlatform: pipelineItemContent(item),
       source: "pipeline",
     });
     await publishPost(post.id).catch((e) => console.error("[scheduler] pipeline publish failed", e));
@@ -59,37 +60,23 @@ export async function schedulerTick() {
     });
     await db.pipeline.update({ where: { id: pipe.id }, data: { lastRunAt: now } });
   }
+}
 
-  // 3. Daily analytics growth for connected accounts (simulated organic movement)
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const anyToday = await db.analyticsSnapshot.findFirst({ where: { date: today } });
-  if (!anyToday) {
-    const accounts = await db.socialAccount.findMany({ where: { status: "connected" } });
-    for (const acc of accounts) {
-      const prev = await db.analyticsSnapshot.findFirst({
-        where: { profileId: acc.profileId, platform: acc.platform },
-        orderBy: { date: "desc" },
-      });
-      const grow = (base: number, pct: number) =>
-        Math.max(0, Math.round(base * (1 + (Math.random() * 2 - 0.6) * pct)));
-      await db.analyticsSnapshot.upsert({
-        where: { profileId_platform_date: { profileId: acc.profileId, platform: acc.platform, date: today } },
-        update: {},
-        create: {
-          profileId: acc.profileId,
-          platform: acc.platform,
-          date: today,
-          followers: (prev?.followers ?? 1200) + Math.floor(Math.random() * 25),
-          reach: grow(prev?.reach ?? 3500, 0.15),
-          impressions: grow(prev?.impressions ?? 5200, 0.15),
-          views: grow(prev?.views ?? 2600, 0.2),
-          likes: grow(prev?.likes ?? 180, 0.25),
-          comments: grow(prev?.comments ?? 24, 0.3),
-          shares: grow(prev?.shares ?? 12, 0.3),
-        },
-      });
-    }
+// Analytics is polled on its own, much slower cadence — platform insight
+// endpoints are heavily rate-limited and the numbers only move daily.
+const ANALYTICS_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+let lastAnalyticsRun = 0;
+
+export async function analyticsTick(force = false) {
+  if (!force && Date.now() - lastAnalyticsRun < ANALYTICS_INTERVAL_MS) return;
+  lastAnalyticsRun = Date.now();
+  const report = await syncAllAnalytics();
+  if (report.accountsChecked > 0) {
+    console.log(
+      `[analytics] checked ${report.accountsChecked} account(s), ` +
+        `${report.snapshotsWritten} snapshot(s), ${report.postMetricsWritten} post metric(s)`
+    );
   }
 }
 
@@ -98,9 +85,11 @@ let started = false;
 export function startScheduler() {
   if (started) return;
   started = true;
-  console.log("[scheduler] started (30s interval)");
+  console.log("[scheduler] started (30s publish interval, 6h analytics interval)");
   setInterval(() => {
     schedulerTick().catch((e) => console.error("[scheduler] tick error", e));
+    analyticsTick().catch((e) => console.error("[analytics] tick error", e));
   }, 30000);
   schedulerTick().catch(() => {});
+  analyticsTick().catch((e) => console.error("[analytics] initial sync error", e));
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PlatformIcon } from "@/components/PlatformIcon";
-import { PLATFORMS } from "@/lib/platforms";
+import { Select } from "@/components/Select";
+import { PLATFORMS, PLATFORM_MAP } from "@/lib/platforms";
 
 interface SocialAccount {
   id: string;
@@ -11,6 +12,7 @@ interface SocialAccount {
   handle: string;
   displayName: string;
   status: string;
+  pageOptions?: { id: string; name: string }[]; // Facebook pending_page picker
 }
 interface ProfileRow {
   id: string;
@@ -18,7 +20,8 @@ interface ProfileRow {
   accounts: SocialAccount[];
 }
 
-const UNAVAILABLE = new Set(["reddit"]);
+// Platforms with a real OAuth integration; the rest are shown as coming soon.
+const OAUTH_PLATFORMS = new Set(["instagram", "linkedin", "facebook", "tiktok"]);
 
 export function UsersClient({
   plan,
@@ -28,10 +31,45 @@ export function UsersClient({
   profiles: ProfileRow[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
+  const [pageIdInput, setPageIdInput] = useState("");
+  const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  // Surface an OAuth connect redirect result (?connected=<platform>&status=...)
+  // then clean the URL.
+  useEffect(() => {
+    const platform = searchParams.get("connected");
+    const status = searchParams.get("status");
+    if (!platform || !status) return;
+    const name = PLATFORM_MAP[platform]?.name ?? platform;
+    const messages: Record<string, { kind: "ok" | "err"; text: string }> = {
+      connected: { kind: "ok", text: `${name} account connected.` },
+      "not-configured": {
+        kind: "err",
+        text: `${name} OAuth isn't configured — set its client ID/secret env vars and restart.`,
+      },
+      "select-page": { kind: "ok", text: "Facebook connected — choose which Page to publish to below." },
+      "enter-page-id": {
+        kind: "ok",
+        text: "Facebook connected, but it didn't list your Pages — paste your Page ID below. On your Page, click the ⋯ button top-right → About this profile → Page transparency, or copy the Page's share link and use the number in it.",
+      },
+      denied: { kind: "err", text: `${name} authorization was denied.` },
+      failed: { kind: "err", text: `${name} connection failed. Please try again.` },
+      "invalid-state": { kind: "err", text: `${name} connection expired. Please try again.` },
+      "profile-not-found": { kind: "err", text: "Profile not found." },
+      "no-pages": {
+        kind: "err",
+        text: "No Facebook Pages found — the Facebook API can only post to Pages, not personal profiles.",
+      },
+    };
+    setNotice(messages[status] ?? null);
+    router.replace("/users");
+    router.refresh();
+  }, [searchParams, router]);
 
   async function addProfile() {
     setBusy(true);
@@ -48,21 +86,26 @@ export function UsersClient({
     router.refresh();
   }
 
-  async function connect(profileId: string, platform: string, currentName: string) {
-    const handle = window.prompt(`Connect ${platform}: enter the account handle`, currentName);
-    if (handle === null) return;
-    const res = await fetch("/api/internal/social-accounts", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ profileId, platform, handle }),
-    });
-    const data = await res.json();
-    if (!data.success) return setError(data.error);
-    router.refresh();
+  function connect(profileId: string, platform: string) {
+    // OAuth platforms redirect out to the provider and come back to /users.
+    window.location.href = `/api/auth/${platform}?profileId=${encodeURIComponent(profileId)}`;
   }
 
   async function disconnect(id: string) {
     await fetch(`/api/internal/social-accounts?id=${id}`, { method: "DELETE" });
+    router.refresh();
+  }
+
+  // Finish a Facebook connection by picking which managed Page to publish to.
+  async function selectPage(id: string, pageId: string) {
+    const res = await fetch("/api/internal/social-accounts", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, pageId }),
+    });
+    const data = await res.json();
+    if (!data.success) return setError(data.error);
+    setNotice({ kind: "ok", text: "Facebook Page connected." });
     router.refresh();
   }
 
@@ -100,6 +143,17 @@ export function UsersClient({
 
       {error && (
         <p className="mt-4 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</p>
+      )}
+      {notice && (
+        <p
+          className={`mt-4 rounded-lg border px-3 py-2 text-sm ${
+            notice.kind === "ok"
+              ? "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300"
+              : "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300"
+          }`}
+        >
+          {notice.text}
+        </p>
       )}
       {shareLink && (
         <div className="mt-4 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 px-3 py-2 text-sm text-green-800 dark:text-green-300 break-all">
@@ -182,7 +236,59 @@ export function UsersClient({
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
                       {PLATFORMS.map((pl) => {
                         const acc = connected.get(pl.id);
-                        const unavailable = UNAVAILABLE.has(pl.id) && !acc;
+                        const unavailable = !OAUTH_PLATFORMS.has(pl.id) && !acc;
+                        if (acc?.status === "pending_page") {
+                          // Facebook OAuth done, Page not chosen yet — inline picker.
+                          return (
+                            <span
+                              key={pl.id}
+                              className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-1.5"
+                            >
+                              <span className="flex items-center gap-1.5 min-w-0 flex-1">
+                                <PlatformIcon platform={pl.id} size={15} />
+                                {(acc.pageOptions?.length ?? 0) > 0 ? (
+                                  <Select
+                                    className="w-full min-w-0"
+                                    ariaLabel="Choose a Facebook Page"
+                                    placeholder="Choose a Page…"
+                                    value=""
+                                    onChange={(v) => v && selectPage(acc.id, v)}
+                                    options={(acc.pageOptions ?? []).map((pg) => ({ value: pg.id, label: pg.name }))}
+                                    triggerClassName="flex w-full min-w-0 items-center justify-between gap-1 cursor-pointer bg-transparent text-xs font-medium text-amber-700 dark:text-amber-300 outline-none"
+                                  />
+                                ) : (
+                                  // Meta didn't list any Pages — connect by Page ID.
+                                  <span className="flex w-full min-w-0 items-center gap-1">
+                                    <input
+                                      value={pageIdInput}
+                                      onChange={(e) => setPageIdInput(e.target.value)}
+                                      onKeyDown={(e) =>
+                                        e.key === "Enter" && pageIdInput.trim() && selectPage(acc.id, pageIdInput.trim())
+                                      }
+                                      placeholder="Page ID…"
+                                      aria-label="Facebook Page ID"
+                                      className="w-full min-w-0 bg-transparent text-xs font-medium text-amber-700 dark:text-amber-300 outline-none placeholder-amber-400 dark:placeholder-amber-600"
+                                    />
+                                    <button
+                                      onClick={() => selectPage(acc.id, pageIdInput.trim())}
+                                      disabled={!pageIdInput.trim()}
+                                      className="shrink-0 rounded bg-amber-100 dark:bg-amber-900 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 disabled:opacity-40 cursor-pointer transition-colors hover:bg-amber-200 dark:hover:bg-amber-800"
+                                    >
+                                      Link
+                                    </button>
+                                  </span>
+                                )}
+                              </span>
+                              <button
+                                onClick={() => disconnect(acc.id)}
+                                aria-label={`Disconnect ${pl.name}`}
+                                className="text-amber-300 hover:text-red-500 text-sm font-bold transition-colors cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </span>
+                          );
+                        }
                         return acc ? (
                           <span
                             key={pl.id}
@@ -205,7 +311,7 @@ export function UsersClient({
                         ) : (
                           <button
                             key={pl.id}
-                            onClick={() => !unavailable && connect(p.id, pl.id, p.name)}
+                            onClick={() => !unavailable && connect(p.id, pl.id)}
                             disabled={unavailable}
                             className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
                               unavailable
@@ -219,7 +325,7 @@ export function UsersClient({
                             </span>
                             {unavailable && (
                               <span className="rounded bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
-                                Unavailable
+                                Coming soon
                               </span>
                             )}
                           </button>

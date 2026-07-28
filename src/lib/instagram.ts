@@ -1,0 +1,395 @@
+// Instagram OAuth via the "Instagram API with Instagram Login" (Instagram Business Login).
+// This is a single OAuth against instagram.com — no Facebook Page linkage required —
+// which mirrors the Google flow already in this codebase. It targets Instagram
+// professional (Business/Creator) accounts.
+//
+// Set up a Meta app (https://developers.facebook.com) with the "Instagram" product,
+// then put the Instagram app ID/secret in INSTAGRAM_CLIENT_ID / INSTAGRAM_CLIENT_SECRET.
+// Add {origin}/api/auth/instagram/callback as a valid OAuth Redirect URI in the app.
+
+// Scopes: basic profile read + content publishing + insights (analytics) +
+// comment management. manage_insights is what makes reach/views readable;
+// without it the sync still works but records only the metrics basic access
+// exposes. manage_comments is required to READ and REPLY to comments on your
+// media — without it those calls fail the same way Facebook's #10 does. A
+// connection made before this scope was added must RECONNECT to gain it.
+const SCOPES = [
+  "instagram_business_basic",
+  "instagram_business_content_publish",
+  "instagram_business_manage_insights",
+  "instagram_business_manage_comments",
+];
+
+export function instagramConfigured(): boolean {
+  return Boolean(process.env.INSTAGRAM_CLIENT_ID && process.env.INSTAGRAM_CLIENT_SECRET);
+}
+
+import { appBaseUrl } from "./base-url";
+
+export { appBaseUrl };
+
+export function redirectUri(origin: string): string {
+  return `${appBaseUrl(origin)}/api/auth/instagram/callback`;
+}
+
+export function authorizeUrl(origin: string, state: string): string {
+  const url = new URL("https://www.instagram.com/oauth/authorize");
+  url.searchParams.set("client_id", process.env.INSTAGRAM_CLIENT_ID!);
+  url.searchParams.set("redirect_uri", redirectUri(origin));
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", SCOPES.join(","));
+  url.searchParams.set("state", state);
+  // Force a fresh login so the user can pick the correct (tester) account,
+  // instead of silently reusing whatever IG session is already in the browser.
+  url.searchParams.set("force_reauth", "true");
+  return url.toString();
+}
+
+interface ShortLivedToken {
+  access_token: string;
+  user_id: number | string;
+}
+
+// Step 1: authorization code -> short-lived token (~1 hour) + IG user id.
+export async function exchangeCodeForToken(
+  origin: string,
+  code: string
+): Promise<ShortLivedToken> {
+  const res = await fetch("https://api.instagram.com/oauth/access_token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.INSTAGRAM_CLIENT_ID!,
+      client_secret: process.env.INSTAGRAM_CLIENT_SECRET!,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri(origin),
+      code,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.access_token) {
+    throw new Error(data.error_message || data.error?.message || "Token exchange failed");
+  }
+  return { access_token: data.access_token, user_id: data.user_id };
+}
+
+interface LongLivedToken {
+  access_token: string;
+  expires_in: number; // seconds (~60 days)
+}
+
+// Step 2: short-lived -> long-lived token (~60 days).
+export async function exchangeForLongLivedToken(
+  shortToken: string
+): Promise<LongLivedToken> {
+  const url = new URL("https://graph.instagram.com/access_token");
+  url.searchParams.set("grant_type", "ig_exchange_token");
+  url.searchParams.set("client_secret", process.env.INSTAGRAM_CLIENT_SECRET!);
+  url.searchParams.set("access_token", shortToken);
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok || !data.access_token) {
+    throw new Error(data.error?.message || "Long-lived token exchange failed");
+  }
+  return { access_token: data.access_token, expires_in: data.expires_in };
+}
+
+interface IgProfile {
+  user_id: string;
+  username: string;
+}
+
+// Step 3: read the connected account's username for display.
+export async function fetchProfile(accessToken: string): Promise<IgProfile> {
+  const url = new URL("https://graph.instagram.com/me");
+  url.searchParams.set("fields", "user_id,username");
+  url.searchParams.set("access_token", accessToken);
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok || !data.username) {
+    throw new Error(data.error?.message || "Failed to read Instagram profile");
+  }
+  return { user_id: String(data.user_id), username: data.username };
+}
+
+// ── Analytics ──────────────────────────────────────────────────────────────
+// Every metric below is read straight from the Graph API. Anything the token's
+// scopes don't cover is left undefined rather than guessed at — see
+// src/lib/analytics-sync.ts.
+
+// Sums the values Instagram returns for a day-period insight metric.
+function insightValue(data: { data?: { values?: { value?: number }[] }[] }): number | undefined {
+  const values = data.data?.[0]?.values;
+  if (!values?.length) return undefined;
+  const total = values.reduce((sum, v) => sum + (v.value ?? 0), 0);
+  return Number.isFinite(total) ? total : undefined;
+}
+
+export interface IgAccountMetrics {
+  followers?: number;
+  reach?: number;
+  views?: number;
+}
+
+// Account-level daily numbers for one connected Instagram account.
+export async function fetchAccountMetrics(
+  igUserId: string,
+  accessToken: string
+): Promise<IgAccountMetrics> {
+  const out: IgAccountMetrics = {};
+
+  try {
+    const me = await igGet("me", { fields: "followers_count", access_token: accessToken });
+    if (typeof me.followers_count === "number") out.followers = me.followers_count;
+  } catch {
+    /* followers_count needs a professional account — leave undefined */
+  }
+
+  // reach and views are separate calls so one unsupported metric doesn't void
+  // the other (Instagram rejects the whole request on any bad metric name).
+  for (const metric of ["reach", "views"] as const) {
+    try {
+      const data = await igGet(`${igUserId}/insights`, {
+        metric,
+        period: "day",
+        access_token: accessToken,
+      });
+      const value = insightValue(data);
+      if (value !== undefined) out[metric] = value;
+    } catch {
+      /* insights scope not granted, or metric unavailable for this account */
+    }
+  }
+
+  return out;
+}
+
+export interface IgMediaMetrics {
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+}
+
+// Per-post numbers. like_count/comments_count come with basic access; views and
+// shares need the insights scope.
+export async function fetchMediaMetrics(
+  mediaId: string,
+  accessToken: string
+): Promise<IgMediaMetrics> {
+  const out: IgMediaMetrics = {};
+
+  try {
+    const media = await igGet(mediaId, {
+      fields: "like_count,comments_count",
+      access_token: accessToken,
+    });
+    if (typeof media.like_count === "number") out.likes = media.like_count;
+    if (typeof media.comments_count === "number") out.comments = media.comments_count;
+  } catch {
+    /* media deleted or not readable */
+  }
+
+  try {
+    const data = await igGet(`${mediaId}/insights`, {
+      metric: "views,shares",
+      access_token: accessToken,
+    });
+    for (const entry of (data.data ?? []) as { name?: string; values?: { value?: number }[] }[]) {
+      const value = entry.values?.[0]?.value;
+      if (typeof value !== "number") continue;
+      if (entry.name === "views") out.views = value;
+      if (entry.name === "shares") out.shares = value;
+    }
+  } catch {
+    /* insights scope not granted */
+  }
+
+  return out;
+}
+
+// ── Content Publishing ─────────────────────────────────────────────────────
+// Instagram publishes in two steps: create a *media container* that points at a
+// PUBLIC media URL, then publish that container. Instagram's servers fetch the
+// URL themselves, so the media must be reachable over public HTTPS (no
+// localhost, no self-signed certs) — see PUBLIC_BASE_URL.
+const GRAPH = "https://graph.instagram.com/v21.0";
+
+async function igPost(path: string, params: Record<string, string>) {
+  const res = await fetch(`${GRAPH}/${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(params),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || `Instagram API error (${path})`);
+  return data;
+}
+
+async function igGet(path: string, params: Record<string, string>) {
+  const url = new URL(`${GRAPH}/${path}`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || `Instagram API error (${path})`);
+  return data;
+}
+
+// Poll a container until Instagram finishes ingesting the media (videos take time).
+async function waitForContainer(accessToken: string, containerId: string) {
+  const deadline = Date.now() + 90_000;
+  for (;;) {
+    const { status_code } = await igGet(containerId, {
+      fields: "status_code",
+      access_token: accessToken,
+    });
+    if (status_code === "FINISHED") return;
+    if (status_code === "ERROR" || status_code === "EXPIRED") {
+      throw new Error(`Instagram could not process the media (status: ${status_code})`);
+    }
+    if (Date.now() > deadline) throw new Error("Instagram media processing timed out");
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+}
+
+export interface IgPublishInput {
+  igUserId: string;
+  accessToken: string;
+  type: "photos" | "video";
+  mediaUrls: string[]; // public https URLs
+  caption: string;
+  firstComment?: string;
+}
+
+// Publishes a photo (single or carousel) or a video (as a Reel) and returns the
+// live permalink + media id.
+export async function publishToInstagram(
+  input: IgPublishInput
+): Promise<{ url: string; externalId: string }> {
+  const { igUserId, accessToken, type, mediaUrls, caption, firstComment } = input;
+  if (mediaUrls.length === 0) throw new Error("No media to publish");
+
+  let containerId: string;
+
+  if (type === "video") {
+    // Standalone videos publish as Reels on the current API.
+    const c = await igPost(`${igUserId}/media`, {
+      media_type: "REELS",
+      video_url: mediaUrls[0],
+      caption,
+      access_token: accessToken,
+    });
+    containerId = c.id;
+  } else if (mediaUrls.length === 1) {
+    const c = await igPost(`${igUserId}/media`, {
+      image_url: mediaUrls[0],
+      caption,
+      access_token: accessToken,
+    });
+    containerId = c.id;
+  } else {
+    // Carousel: create a child container per image, then a parent CAROUSEL.
+    const children: string[] = [];
+    for (const url of mediaUrls.slice(0, 10)) {
+      const child = await igPost(`${igUserId}/media`, {
+        image_url: url,
+        is_carousel_item: "true",
+        access_token: accessToken,
+      });
+      children.push(child.id);
+    }
+    for (const child of children) await waitForContainer(accessToken, child);
+    const parent = await igPost(`${igUserId}/media`, {
+      media_type: "CAROUSEL",
+      children: children.join(","),
+      caption,
+      access_token: accessToken,
+    });
+    containerId = parent.id;
+  }
+
+  await waitForContainer(accessToken, containerId);
+  const published = await igPost(`${igUserId}/media_publish`, {
+    creation_id: containerId,
+    access_token: accessToken,
+  });
+  const mediaId = String(published.id);
+
+  let permalink = "";
+  try {
+    const meta = await igGet(mediaId, { fields: "permalink", access_token: accessToken });
+    permalink = meta.permalink ?? "";
+  } catch {
+    /* permalink is best-effort */
+  }
+
+  // Instagram convention: hashtags go in the first comment.
+  if (firstComment) {
+    try {
+      await igPost(`${mediaId}/comments`, { message: firstComment, access_token: accessToken });
+    } catch {
+      /* first comment is best-effort */
+    }
+  }
+
+  return { url: permalink || `https://www.instagram.com/`, externalId: mediaId };
+}
+
+// ── Comments ─────────────────────────────────────────────────────────────
+// Read/reply on your own media with the stored IG token. Reading and replying
+// come with instagram_business_basic + content_publish (granted at connect).
+// IG uses `text`/`username` (not FB's `message`/`from`) and replies go to the
+// comment's /replies edge, not /comments.
+
+export interface IgComment {
+  id: string;
+  text: string;
+  username?: string;
+  timestamp?: string;
+  likeCount?: number;
+}
+
+interface RawIgComment {
+  id: string;
+  text?: string;
+  username?: string;
+  timestamp?: string;
+  like_count?: number;
+}
+
+// Returns the media's comments plus IG's own total `comments_count`. The count
+// is the diagnostic: comments:[] with count 0 means IG has no comments on THIS
+// media (wrong media, propagation lag, or the comment is elsewhere); comments:[]
+// with count > 0 means IG is withholding them from the read (hidden/filtered).
+// We read via the media object (fields=comments_count,comments{...}) so both come
+// back in one call.
+export async function fetchMediaComments(
+  mediaId: string,
+  accessToken: string
+): Promise<{ comments: IgComment[]; count: number | null }> {
+  const data = await igGet(mediaId, {
+    fields: "comments_count,comments{id,text,username,timestamp,like_count}",
+    access_token: accessToken,
+  });
+  const rows: RawIgComment[] = data.comments?.data ?? [];
+  return {
+    count: typeof data.comments_count === "number" ? data.comments_count : null,
+    comments: rows.map((c) => ({
+      id: c.id,
+      text: c.text ?? "",
+      username: c.username,
+      timestamp: c.timestamp,
+      likeCount: c.like_count,
+    })),
+  };
+}
+
+// Reply to a comment (creates a threaded reply) and return the new comment id.
+export async function replyToIgComment(
+  commentId: string,
+  message: string,
+  accessToken: string
+): Promise<{ id: string }> {
+  const data = await igPost(`${commentId}/replies`, { message, access_token: accessToken });
+  return { id: String(data.id) };
+}

@@ -1,4 +1,4 @@
-import { getSessionAccount } from "@/lib/session";
+import { requireSessionAccount } from "@/lib/session";
 import { db } from "@/lib/db";
 import { getPlan } from "@/lib/plans";
 import { ApiKeysClient } from "./api-keys-client";
@@ -7,7 +7,7 @@ export const metadata = { title: "API Keys" };
 export const dynamic = "force-dynamic";
 
 export default async function ApiKeysPage() {
-  const account = (await getSessionAccount())!;
+  const account = await requireSessionAccount();
   const plan = getPlan(account.plan);
 
   const monthStart = new Date();
@@ -24,8 +24,11 @@ export default async function ApiKeysPage() {
     db.ffmpegJob.count({ where: { accountId: account.id, createdAt: { gte: monthStart } } }),
   ]);
 
+  const baseUrl = process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || "https://your-domain.com";
+
   return (
     <ApiKeysClient
+      baseUrl={baseUrl}
       plan={{ id: plan.id, name: plan.name, ffmpegMinutes: plan.ffmpegMinutes, uploads: plan.uploadsPerMonth }}
       keys={keys.map((k) => ({
         id: k.id,

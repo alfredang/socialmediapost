@@ -1,4 +1,4 @@
-import { getSessionAccount } from "@/lib/session";
+import { requireSessionAccount } from "@/lib/session";
 import { db } from "@/lib/db";
 import { PipelinesClient } from "./pipelines-client";
 
@@ -6,7 +6,7 @@ export const metadata = { title: "Pipelines" };
 export const dynamic = "force-dynamic";
 
 export default async function PipelinesPage() {
-  const account = (await getSessionAccount())!;
+  const account = await requireSessionAccount();
   const [pipelines, profiles] = await Promise.all([
     db.pipeline.findMany({
       where: { profile: { accountId: account.id } },
@@ -42,6 +42,8 @@ export default async function PipelinesPage() {
           id: i.id,
           title: i.title,
           description: i.description,
+          type: i.type,
+          mediaCount: (JSON.parse(i.mediaFiles) as unknown[]).length,
           status: i.status,
           publishedAt: i.publishedAt?.toISOString() ?? null,
         })),

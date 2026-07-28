@@ -64,15 +64,64 @@ export function computeSlots(config: QueueConfig, from: Date, count: number): Da
   return slots;
 }
 
-// First slot with free capacity for the profile.
+export interface QueueSlot {
+  time: string; // ISO
+  used: number; // posts already queued into this slot
+  capacity: number; // maxPerSlot
+  available: boolean; // used < capacity
+  posts: { id: string; title: string }[];
+}
+
+// The next `count` slots annotated with real occupancy — which posts already
+// sit in each slot and whether it still has capacity. This is what both the
+// preview and nextAvailableSlot read, so what you see is what you get.
+export async function computeQueuePreview(
+  profileId: string,
+  config: QueueConfig,
+  count: number
+): Promise<QueueSlot[]> {
+  const slots = computeSlots(config, new Date(), count);
+  if (slots.length === 0) return [];
+
+  // Scheduled posts land on an exact slot instant (see nextAvailableSlot), so a
+  // single windowed query keyed by scheduledAt tells us each slot's occupancy.
+  const posts = await db.post.findMany({
+    where: {
+      profileId,
+      status: "scheduled",
+      scheduledAt: { gte: slots[0], lte: slots[slots.length - 1] },
+    },
+    select: { id: true, title: true, description: true, scheduledAt: true },
+    orderBy: { scheduledAt: "asc" },
+  });
+  const byTime = new Map<number, { id: string; title: string }[]>();
+  for (const p of posts) {
+    if (!p.scheduledAt) continue;
+    const key = p.scheduledAt.getTime();
+    const arr = byTime.get(key) ?? [];
+    arr.push({ id: p.id, title: p.title || p.description || "(untitled)" });
+    byTime.set(key, arr);
+  }
+
+  return slots.map((slot) => {
+    const occ = byTime.get(slot.getTime()) ?? [];
+    return {
+      time: slot.toISOString(),
+      used: occ.length,
+      capacity: config.maxPerSlot,
+      available: occ.length < config.maxPerSlot,
+      posts: occ,
+    };
+  });
+}
+
+// First slot with free capacity for the profile — reads the same occupancy the
+// preview shows, so queuing never lands somewhere the preview called available.
 export async function nextAvailableSlot(profileId: string): Promise<Date> {
   const config = await getQueueConfig(profileId);
-  const slots = computeSlots(config, new Date(), 90);
-  for (const slot of slots) {
-    const used = await db.post.count({
-      where: { profileId, status: "scheduled", scheduledAt: slot },
-    });
-    if (used < config.maxPerSlot) return slot;
-  }
-  return slots[slots.length - 1] ?? new Date(Date.now() + 3600000);
+  const preview = await computeQueuePreview(profileId, config, 90);
+  const free = preview.find((s) => s.available);
+  if (free) return new Date(free.time);
+  const last = preview[preview.length - 1];
+  return last ? new Date(last.time) : new Date(Date.now() + 3600000);
 }

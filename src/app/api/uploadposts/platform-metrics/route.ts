@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { PLATFORMS } from "@/lib/platforms";
+import { PLATFORMS, analyticsMetricsFor } from "@/lib/platforms";
 
-const METRICS: Record<string, string[]> = {
-  default: ["followers", "reach", "impressions", "views", "likes", "comments", "shares"],
-};
-
-// GET /api/uploadposts/platform-metrics — public: metrics available per platform
+// GET /api/uploadposts/platform-metrics — public: metrics available per platform.
+// `metrics` lists only what SocialPost actually collects for that platform (from
+// its real API), so it is [] for platforms without an analytics integration
+// rather than a blanket list that overstates coverage.
 export async function GET() {
   return NextResponse.json({
     success: true,
@@ -15,7 +14,7 @@ export async function GET() {
         {
           name: p.name,
           supports: p.supports,
-          metrics: METRICS[p.id] ?? METRICS.default,
+          metrics: analyticsMetricsFor(p.id).map((m) => m.key),
           constraints: {
             title_max: p.titleMax,
             body_max: p.bodyMax,
