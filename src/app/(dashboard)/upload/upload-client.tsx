@@ -106,6 +106,13 @@ export function UploadClient({ profiles }: { profiles: ProfileOpt[] }) {
 
   const eligiblePlatforms = PLATFORMS.filter((p) => p.supports.includes(postType));
 
+  // Two content models only: title-capable platforms (YouTube, Reddit, blogs)
+  // get a Title + Description; description-only platforms (everything else) get a
+  // single Description. The main field is labelled accordingly.
+  const hasTitled = selected.some((p) => PLATFORM_MAP[p]?.titleRole === "titled");
+  const hasNonTitled = selected.some((p) => PLATFORM_MAP[p]?.titleRole !== "titled");
+  const titleLabel = hasTitled ? "Title" : "Description";
+
   function toggle(platform: string) {
     setSelected((s) => (s.includes(platform) ? s.filter((x) => x !== platform) : [...s, platform]));
   }
@@ -326,11 +333,13 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
 
           <div className="mt-5">
             <div className="flex items-center justify-between">
-              <label className="label" htmlFor="title">Title</label>
-              <span className="text-xs text-slate-400">Optional — used as caption/description</span>
+              <label className="label" htmlFor="title">{titleLabel}</label>
+              <span className="text-xs text-slate-400">
+                {hasTitled ? "The post title / headline" : "Posted to every selected platform"}
+              </span>
             </div>
             <div className="relative">
-              <textarea id="title" className="input min-h-20 pr-10" placeholder="Enter title for your post" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <textarea id="title" className="input min-h-20 pr-10" placeholder={hasTitled ? "Enter a title" : "Write your post"} value={title} onChange={(e) => setTitle(e.target.value)} />
               <div className="absolute right-2 top-2">
                 <EmojiPicker onPick={addEmoji(setTitle)} />
               </div>
@@ -343,7 +352,7 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
               <span className="text-slate-400">Improves your title, writes a caption and suggests hashtags.</span>
             </div>
             <p className="mt-3 text-xs text-slate-400 leading-relaxed">
-              This Title is a global field used across all platforms during upload. By default it also
+              This {titleLabel} is a global field used across all platforms during upload. By default it also
               serves as the description/caption when a platform-specific description is not provided.
               Mind that each network has different character limits and rules — you can override per
               platform via fields like <code className="font-mono">instagram_title</code>,{" "}
@@ -352,15 +361,20 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
             </p>
           </div>
 
-          <div className="mt-5">
-            <label className="label" htmlFor="description">Description / Caption</label>
-            <div className="relative">
-              <textarea id="description" className="input min-h-24 pr-10" placeholder="Longer caption, hashtags…" value={description} onChange={(e) => setDescription(e.target.value)} />
-              <div className="absolute right-2 top-2">
-                <EmojiPicker onPick={addEmoji(setDescription)} />
+          {/* Only titled platforms (YouTube, Reddit, blogs) have a genuine second
+              field. Caption/message platforms are a single text blob, so a separate
+              Description would just be a redundant second half of the same caption. */}
+          {hasTitled && (
+            <div className="mt-5">
+              <label className="label" htmlFor="description">Description</label>
+              <div className="relative">
+                <textarea id="description" className="input min-h-24 pr-10" placeholder="Longer body / show notes…" value={description} onChange={(e) => setDescription(e.target.value)} />
+                <div className="absolute right-2 top-2">
+                  <EmojiPicker onPick={addEmoji(setDescription)} />
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           <div className="mt-5">
             <label className="label" htmlFor="first-comment">First Comment (Optional)</label>
@@ -392,9 +406,16 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
             {eligiblePlatforms.map((pl) => {
               const acc = connectedMap.get(pl.id);
               const isSelected = selected.includes(pl.id);
-              const disabled = !acc;
+              const titled = pl.titleRole === "titled";
+              const incompatible = !isSelected && ((titled && hasNonTitled) || (!titled && hasTitled));
+              const disabled = !acc || incompatible;
+              const reason = incompatible
+                ? titled
+                  ? "Post titled platforms (YouTube, Reddit, blogs) separately from caption/message platforms"
+                  : "Post caption/message platforms separately from titled platforms (YouTube, Reddit, blogs)"
+                : undefined;
               return (
-                <div key={pl.id} className={`rounded-xl border p-3 transition-colors ${isSelected ? "border-emerald-400 dark:border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/40" : "border-slate-200 dark:border-slate-800"} ${disabled ? "opacity-60" : ""}`}>
+                <div key={pl.id} title={reason} className={`rounded-xl border p-3 transition-colors ${isSelected ? "border-emerald-400 dark:border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/40" : "border-slate-200 dark:border-slate-800"} ${disabled ? "opacity-60" : ""}`}>
                   <div className="flex items-center justify-between gap-2">
                     <button
                       onClick={() => !disabled && toggle(pl.id)}
@@ -405,7 +426,7 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
                       <span className="min-w-0">
                         <span className="block text-sm font-semibold text-slate-900 dark:text-white">{pl.name}</span>
                         <span className="block truncate text-xs text-slate-400">
-                          {acc ? `@${acc.handle}` : "Not connected"}
+                          {incompatible ? (titled ? "Titled — post separately" : "No title — post separately") : acc ? `@${acc.handle}` : "Not connected"}
                         </span>
                       </span>
                     </button>

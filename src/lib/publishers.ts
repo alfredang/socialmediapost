@@ -9,6 +9,8 @@ import { publishToInstagram } from "./instagram";
 import { publishToFacebook } from "./facebook";
 import { publishToLinkedIn } from "./linkedin";
 import { publishToTikTok } from "./tiktok";
+import { publishToDiscord } from "./discord";
+import { publishToSlack } from "./slack";
 
 // Builds a public URL a platform's servers can fetch a stored media file from.
 // Media-URL stubs (mime "url") are already public — pass them through.
@@ -74,5 +76,20 @@ export const REAL_PUBLISHERS: Record<string, PlatformPublisher> = {
       media: ctx.media,
       mediaUrls: ctx.type === "photos" ? ctx.mediaUrls() : [],
       caption: ctx.caption,
+    }),
+  // Webhook platforms: accessToken holds the webhook URL (no OAuth). readStoredFile
+  // pulls bytes for attachments, so no PUBLIC_BASE_URL is needed.
+  discord: (ctx) =>
+    publishToDiscord({
+      webhookUrl: ctx.account.accessToken!,
+      meta: ctx.account.meta,
+      type: ctx.type,
+      media: ctx.media,
+      content: ctx.caption,
+    }),
+  slack: (ctx) =>
+    publishToSlack({
+      webhookUrl: ctx.account.accessToken!,
+      text: ctx.caption,
     }),
 };

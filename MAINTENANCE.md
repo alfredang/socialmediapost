@@ -27,6 +27,28 @@ also need vendor **App Review** before non-admin/non-tester users can grant them
 | Facebook | [src/lib/facebook.ts](src/lib/facebook.ts) `SCOPES` | `pages_read_user_content` + `pages_manage_engagement` (comment read/reply) are advanced → App Review. |
 | Instagram | [src/lib/instagram.ts](src/lib/instagram.ts) `SCOPES` | `instagram_business_manage_comments` (comment read/reply) is advanced → App Review. |
 
+## Database: `db push` now, migrations before launch
+
+The schema is applied declaratively: [docker-entrypoint.sh](docker-entrypoint.sh)
+runs `prisma db push --accept-data-loss` on boot, which reshapes the DB to match
+[prisma/schema.prisma](prisma/schema.prisma) directly. There is intentionally no
+`prisma/migrations/` folder — while the schema is still moving and there's no
+real data, declarative push is the single source of truth (a parallel migration
+history would only drift and mislead).
+
+**Guardrail — switch before the first real user data lands.** `db push
+--accept-data-loss` will DROP columns/tables to match the schema; harmless on an
+empty DB, destructive once there are real rows. Before launch:
+
+1. `prisma migrate dev --name init` to generate one clean baseline migration from
+   the current schema.
+2. Change the entrypoint from `prisma db push --accept-data-loss` to
+   `prisma migrate deploy`.
+3. Drop `--accept-data-loss`.
+
+From then on, schema changes ship as reviewable, reversible migrations that never
+silently delete production data.
+
 ## Reminder
 
 These are external-dependency drifts with no automated guard — LinkedIn

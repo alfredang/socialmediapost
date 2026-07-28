@@ -16,37 +16,51 @@ export interface PlatformDef {
   videoMaxSeconds: number;
   firstComment: boolean;
   hashtagStyle: "inline" | "end" | "first-comment" | "none";
+  // Content model, driving both adaptation and the composer's field labels:
+  //   "titled"  — a real, separate title field (YouTube, Reddit, blogs).
+  //   "caption" — title & body both feed the caption; stored apart but there is
+  //               no true title (Instagram, TikTok, Facebook, LinkedIn).
+  //   "merge"   — a single message with no title concept (X, chat/webhook
+  //               platforms); the title is folded into the one body.
+  // Only "merge" collapses the title into the body during adaptation.
+  titleRole: "titled" | "caption" | "merge";
   notes: string;
 }
 
 export const PLATFORMS: PlatformDef[] = [
-  { id: "tiktok", name: "TikTok", color: "#010101", emoji: "🎵", supports: ["video", "photos"], titleMax: 150, bodyMax: 2200, photosMax: 35, videoMaxSeconds: 600, firstComment: false, hashtagStyle: "inline", notes: "MP4/WebM, 9:16 preferred, max 10 min" },
-  { id: "instagram", name: "Instagram", color: "#E4405F", emoji: "📸", supports: ["video", "photos"], titleMax: 2200, bodyMax: 2200, photosMax: 10, videoMaxSeconds: 900, firstComment: true, hashtagStyle: "first-comment", notes: "Reels ≤15 min, carousel ≤10 images" },
-  { id: "youtube", name: "YouTube", color: "#FF0000", emoji: "▶️", supports: ["video"], titleMax: 100, bodyMax: 5000, photosMax: 0, videoMaxSeconds: 43200, firstComment: true, hashtagStyle: "end", notes: "Title ≤100 chars, description ≤5000" },
-  { id: "linkedin", name: "LinkedIn", color: "#0A66C2", emoji: "💼", supports: ["video", "photos", "text", "document"], titleMax: 3000, bodyMax: 3000, photosMax: 9, videoMaxSeconds: 600, firstComment: true, hashtagStyle: "end", notes: "Posts ≤3000 chars, documents ≤100MB/300 pages" },
-  { id: "facebook", name: "Facebook", color: "#1877F2", emoji: "👥", supports: ["video", "photos", "text"], titleMax: 63206, bodyMax: 63206, photosMax: 10, videoMaxSeconds: 14400, firstComment: true, hashtagStyle: "end", notes: "Pages posting, Reels ≤90s or video ≤4h" },
-  { id: "x", name: "X", color: "#000000", emoji: "✖️", supports: ["video", "photos", "text"], titleMax: 280, bodyMax: 280, photosMax: 4, videoMaxSeconds: 140, firstComment: true, hashtagStyle: "inline", notes: "280 weighted chars, ≤4 images, video ≤2:20" },
-  { id: "threads", name: "Threads", color: "#000000", emoji: "🧵", supports: ["video", "photos", "text"], titleMax: 500, bodyMax: 500, photosMax: 20, videoMaxSeconds: 300, firstComment: true, hashtagStyle: "inline", notes: "500 chars, video ≤5 min" },
-  { id: "pinterest", name: "Pinterest", color: "#BD081C", emoji: "📌", supports: ["video", "photos"], titleMax: 100, bodyMax: 500, photosMax: 5, videoMaxSeconds: 900, firstComment: false, hashtagStyle: "none", notes: "Pin title ≤100, description ≤500, board required" },
-  { id: "reddit", name: "Reddit", color: "#FF4500", emoji: "👽", supports: ["video", "photos", "text"], titleMax: 300, bodyMax: 40000, photosMax: 20, videoMaxSeconds: 900, firstComment: true, hashtagStyle: "none", notes: "Title ≤300, subreddit required" },
-  { id: "bluesky", name: "Bluesky", color: "#0285FF", emoji: "🦋", supports: ["video", "photos", "text"], titleMax: 300, bodyMax: 300, photosMax: 4, videoMaxSeconds: 60, firstComment: true, hashtagStyle: "inline", notes: "300 graphemes, video ≤60s" },
-  { id: "google_business", name: "Google Business", color: "#4285F4", emoji: "🏢", supports: ["video", "photos", "text"], titleMax: 1500, bodyMax: 1500, photosMax: 10, videoMaxSeconds: 30, firstComment: false, hashtagStyle: "none", notes: "Business profile updates ≤1500 chars" },
-  { id: "discord", name: "Discord", color: "#5865F2", emoji: "🎮", supports: ["video", "photos", "text"], titleMax: 2000, bodyMax: 2000, photosMax: 10, videoMaxSeconds: 600, firstComment: false, hashtagStyle: "none", notes: "Webhook message ≤2000 chars" },
-  { id: "telegram", name: "Telegram", color: "#26A5E4", emoji: "✈️", supports: ["video", "photos", "text"], titleMax: 4096, bodyMax: 4096, photosMax: 10, videoMaxSeconds: 3600, firstComment: false, hashtagStyle: "inline", notes: "Channel post ≤4096 chars (1024 caption)" },
-  { id: "slack", name: "Slack", color: "#4A154B", emoji: "💬", supports: ["text"], titleMax: 4000, bodyMax: 4000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "none", notes: "Channel message via webhook" },
-  { id: "mastodon", name: "Mastodon", color: "#6364FF", emoji: "🐘", supports: ["video", "photos", "text"], titleMax: 500, bodyMax: 500, photosMax: 4, videoMaxSeconds: 300, firstComment: true, hashtagStyle: "inline", notes: "500 chars default instance limit" },
-  { id: "nostr", name: "Nostr", color: "#8E44AD", emoji: "🟣", supports: ["text"], titleMax: 10000, bodyMax: 10000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "inline", notes: "Plain-text notes, media via links" },
-  { id: "lemmy", name: "Lemmy", color: "#00BC8C", emoji: "🐭", supports: ["photos", "text"], titleMax: 200, bodyMax: 10000, photosMax: 1, videoMaxSeconds: 0, firstComment: true, hashtagStyle: "none", notes: "Community post, title ≤200" },
-  { id: "devto", name: "Dev.to", color: "#0A0A0A", emoji: "👩‍💻", supports: ["text"], titleMax: 128, bodyMax: 100000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "end", notes: "Markdown articles, ≤4 tags" },
-  { id: "hashnode", name: "Hashnode", color: "#2962FF", emoji: "📝", supports: ["text"], titleMax: 250, bodyMax: 100000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "end", notes: "Markdown blog posts" },
-  { id: "wordpress", name: "WordPress", color: "#21759B", emoji: "🌐", supports: ["video", "photos", "text"], titleMax: 200, bodyMax: 100000, photosMax: 20, videoMaxSeconds: 3600, firstComment: false, hashtagStyle: "none", notes: "Self-hosted or .com blog posts" },
-  { id: "whop", name: "Whop", color: "#FF6243", emoji: "🛍️", supports: ["text"], titleMax: 300, bodyMax: 10000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "none", notes: "Community forum posts" },
-  { id: "listmonk", name: "Listmonk", color: "#0055D4", emoji: "📧", supports: ["text"], titleMax: 200, bodyMax: 100000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "none", notes: "Email campaign to subscriber list" },
+  { id: "tiktok", name: "TikTok", color: "#010101", emoji: "🎵", supports: ["video", "photos"], titleMax: 150, bodyMax: 2200, photosMax: 35, videoMaxSeconds: 600, firstComment: false, hashtagStyle: "inline", titleRole: "caption", notes: "MP4/WebM, 9:16 preferred, max 10 min" },
+  { id: "instagram", name: "Instagram", color: "#E4405F", emoji: "📸", supports: ["video", "photos"], titleMax: 2200, bodyMax: 2200, photosMax: 10, videoMaxSeconds: 900, firstComment: true, hashtagStyle: "first-comment", titleRole: "caption", notes: "Reels ≤15 min, carousel ≤10 images" },
+  { id: "youtube", name: "YouTube", color: "#FF0000", emoji: "▶️", supports: ["video"], titleMax: 100, bodyMax: 5000, photosMax: 0, videoMaxSeconds: 43200, firstComment: true, hashtagStyle: "end", titleRole: "titled", notes: "Title ≤100 chars, description ≤5000" },
+  { id: "linkedin", name: "LinkedIn", color: "#0A66C2", emoji: "💼", supports: ["video", "photos", "text", "document"], titleMax: 3000, bodyMax: 3000, photosMax: 9, videoMaxSeconds: 600, firstComment: true, hashtagStyle: "end", titleRole: "caption", notes: "Posts ≤3000 chars, documents ≤100MB/300 pages" },
+  { id: "facebook", name: "Facebook", color: "#1877F2", emoji: "👥", supports: ["video", "photos", "text"], titleMax: 63206, bodyMax: 63206, photosMax: 10, videoMaxSeconds: 14400, firstComment: true, hashtagStyle: "end", titleRole: "caption", notes: "Pages posting, Reels ≤90s or video ≤4h" },
+  { id: "x", name: "X", color: "#000000", emoji: "✖️", supports: ["video", "photos", "text"], titleMax: 280, bodyMax: 280, photosMax: 4, videoMaxSeconds: 140, firstComment: true, hashtagStyle: "inline", titleRole: "merge", notes: "280 weighted chars, ≤4 images, video ≤2:20" },
+  { id: "threads", name: "Threads", color: "#000000", emoji: "🧵", supports: ["video", "photos", "text"], titleMax: 500, bodyMax: 500, photosMax: 20, videoMaxSeconds: 300, firstComment: true, hashtagStyle: "inline", titleRole: "merge", notes: "500 chars, video ≤5 min" },
+  { id: "pinterest", name: "Pinterest", color: "#BD081C", emoji: "📌", supports: ["video", "photos"], titleMax: 100, bodyMax: 500, photosMax: 5, videoMaxSeconds: 900, firstComment: false, hashtagStyle: "none", titleRole: "titled", notes: "Pin title ≤100, description ≤500, board required" },
+  { id: "reddit", name: "Reddit", color: "#FF4500", emoji: "👽", supports: ["video", "photos", "text"], titleMax: 300, bodyMax: 40000, photosMax: 20, videoMaxSeconds: 900, firstComment: true, hashtagStyle: "none", titleRole: "titled", notes: "Title ≤300, subreddit required" },
+  { id: "bluesky", name: "Bluesky", color: "#0285FF", emoji: "🦋", supports: ["video", "photos", "text"], titleMax: 300, bodyMax: 300, photosMax: 4, videoMaxSeconds: 60, firstComment: true, hashtagStyle: "inline", titleRole: "merge", notes: "300 graphemes, video ≤60s" },
+  { id: "google_business", name: "Google Business", color: "#4285F4", emoji: "🏢", supports: ["video", "photos", "text"], titleMax: 1500, bodyMax: 1500, photosMax: 10, videoMaxSeconds: 30, firstComment: false, hashtagStyle: "none", titleRole: "merge", notes: "Business profile updates ≤1500 chars" },
+  { id: "discord", name: "Discord", color: "#5865F2", emoji: "🎮", supports: ["video", "photos", "text"], titleMax: 2000, bodyMax: 2000, photosMax: 10, videoMaxSeconds: 600, firstComment: false, hashtagStyle: "none", titleRole: "merge", notes: "Webhook message ≤2000 chars" },
+  { id: "telegram", name: "Telegram", color: "#26A5E4", emoji: "✈️", supports: ["video", "photos", "text"], titleMax: 4096, bodyMax: 4096, photosMax: 10, videoMaxSeconds: 3600, firstComment: false, hashtagStyle: "inline", titleRole: "merge", notes: "Channel post ≤4096 chars (1024 caption)" },
+  { id: "slack", name: "Slack", color: "#4A154B", emoji: "💬", supports: ["text"], titleMax: 4000, bodyMax: 4000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "none", titleRole: "merge", notes: "Channel message via webhook" },
+  { id: "mastodon", name: "Mastodon", color: "#6364FF", emoji: "🐘", supports: ["video", "photos", "text"], titleMax: 500, bodyMax: 500, photosMax: 4, videoMaxSeconds: 300, firstComment: true, hashtagStyle: "inline", titleRole: "merge", notes: "500 chars default instance limit" },
+  { id: "nostr", name: "Nostr", color: "#8E44AD", emoji: "🟣", supports: ["text"], titleMax: 10000, bodyMax: 10000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "inline", titleRole: "merge", notes: "Plain-text notes, media via links" },
+  { id: "lemmy", name: "Lemmy", color: "#00BC8C", emoji: "🐭", supports: ["photos", "text"], titleMax: 200, bodyMax: 10000, photosMax: 1, videoMaxSeconds: 0, firstComment: true, hashtagStyle: "none", titleRole: "titled", notes: "Community post, title ≤200" },
+  { id: "devto", name: "Dev.to", color: "#0A0A0A", emoji: "👩‍💻", supports: ["text"], titleMax: 128, bodyMax: 100000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "end", titleRole: "titled", notes: "Markdown articles, ≤4 tags" },
+  { id: "hashnode", name: "Hashnode", color: "#2962FF", emoji: "📝", supports: ["text"], titleMax: 250, bodyMax: 100000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "end", titleRole: "titled", notes: "Markdown blog posts" },
+  { id: "wordpress", name: "WordPress", color: "#21759B", emoji: "🌐", supports: ["video", "photos", "text"], titleMax: 200, bodyMax: 100000, photosMax: 20, videoMaxSeconds: 3600, firstComment: false, hashtagStyle: "none", titleRole: "titled", notes: "Self-hosted or .com blog posts" },
+  { id: "whop", name: "Whop", color: "#FF6243", emoji: "🛍️", supports: ["text"], titleMax: 300, bodyMax: 10000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "none", titleRole: "titled", notes: "Community forum posts" },
+  { id: "listmonk", name: "Listmonk", color: "#0055D4", emoji: "📧", supports: ["text"], titleMax: 200, bodyMax: 100000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "none", titleRole: "titled", notes: "Email campaign to subscriber list" },
 ];
 
 export const PLATFORM_MAP: Record<string, PlatformDef> = Object.fromEntries(
   PLATFORMS.map((p) => [p.id, p])
 );
+
+// Platforms connected by pasting a credential (webhook URL / token) rather than
+// an OAuth redirect. The Users page shows these a credential form instead of a
+// "Connect" redirect, and /api/internal/social-accounts validates + stores them.
+export const CREDENTIAL_PLATFORMS = ["discord", "slack"] as const;
+export const CREDENTIAL_PLATFORM_SET: ReadonlySet<string> = new Set(CREDENTIAL_PLATFORMS);
 
 // ── Analytics capability ─────────────────────────────────────────────────────
 // The metrics SocialPost can actually collect for each platform, in display
@@ -173,8 +187,11 @@ export function adaptContent(platformId: string, input: AdaptInput): AdaptedCont
     warnings.push("Hashtags have no effect on this platform");
   }
 
-  // Single-text platforms (X, Threads, Bluesky, Mastodon…): merge title+body into one post
-  if (def.titleMax === def.bodyMax && def.titleMax <= 500 && input.type === "text") {
+  // Message platforms with no title concept (X, chat/webhook, …): fold title into
+  // the one body so there's no stray pseudo-heading. Driven by an explicit
+  // titleRole, not a character-limit guess (which mis-handled Discord/Slack/
+  // Telegram, whose limits are well over 500).
+  if (def.titleRole === "merge") {
     const merged = [title, body].filter(Boolean).join("\n\n");
     title = merged;
     body = "";

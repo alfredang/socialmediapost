@@ -4,7 +4,21 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PlatformIcon } from "@/components/PlatformIcon";
 import { Select } from "@/components/Select";
-import { PLATFORMS, PLATFORM_MAP } from "@/lib/platforms";
+import { PLATFORMS, PLATFORM_MAP, CREDENTIAL_PLATFORM_SET } from "@/lib/platforms";
+
+// Where to find each credential-based platform's webhook URL.
+const CREDENTIAL_HELP: Record<string, { label: string; placeholder: string; hint: string }> = {
+  discord: {
+    label: "Discord webhook URL",
+    placeholder: "https://discord.com/api/webhooks/…",
+    hint: "In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.",
+  },
+  slack: {
+    label: "Slack incoming webhook URL",
+    placeholder: "https://hooks.slack.com/services/…",
+    hint: "In Slack: create an app → Incoming Webhooks → Add New Webhook to Workspace → copy the URL. A confirmation message is posted to verify it.",
+  },
+};
 
 interface SocialAccount {
   id: string;
@@ -38,6 +52,10 @@ export function UsersClient({
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [pageIdInput, setPageIdInput] = useState("");
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  // Credential-connect modal (Discord/Slack webhook paste).
+  const [credModal, setCredModal] = useState<{ profileId: string; platform: string } | null>(null);
+  const [credInput, setCredInput] = useState("");
+  const [credError, setCredError] = useState<string | null>(null);
 
   // Surface an OAuth connect redirect result (?connected=<platform>&status=...)
   // then clean the URL.
@@ -89,6 +107,34 @@ export function UsersClient({
   function connect(profileId: string, platform: string) {
     // OAuth platforms redirect out to the provider and come back to /users.
     window.location.href = `/api/auth/${platform}?profileId=${encodeURIComponent(profileId)}`;
+  }
+
+  function openCredModal(profileId: string, platform: string) {
+    setCredModal({ profileId, platform });
+    setCredInput("");
+    setCredError(null);
+  }
+
+  async function submitCred() {
+    if (!credModal || !credInput.trim()) return;
+    setBusy(true);
+    setCredError(null);
+    const res = await fetch("/api/internal/social-accounts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        profileId: credModal.profileId,
+        platform: credModal.platform,
+        webhookUrl: credInput.trim(),
+      }),
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (!data.success) return setCredError(data.error);
+    const name = PLATFORM_MAP[credModal.platform]?.name ?? credModal.platform;
+    setCredModal(null);
+    setNotice({ kind: "ok", text: `${name} connected.` });
+    router.refresh();
   }
 
   async function disconnect(id: string) {
@@ -208,6 +254,14 @@ export function UsersClient({
             )}
             {profiles.map((p) => {
               const connected = new Map(p.accounts.map((a) => [a.platform, a]));
+              // Connectable platforms (OAuth, credential, or already linked) first;
+              // "Coming soon" ones sink to the bottom. Stable sort keeps registry
+              // order within each group.
+              const isAvailable = (pl: (typeof PLATFORMS)[number]) =>
+                OAUTH_PLATFORMS.has(pl.id) || CREDENTIAL_PLATFORM_SET.has(pl.id) || connected.has(pl.id);
+              const orderedPlatforms = [...PLATFORMS].sort(
+                (a, b) => Number(isAvailable(b)) - Number(isAvailable(a))
+              );
               return (
                 <tr key={p.id} className="border-b border-slate-100 dark:border-slate-800 align-top">
                   <td className="py-4 pr-4">
@@ -234,9 +288,10 @@ export function UsersClient({
                   </td>
                   <td className="py-4 pr-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-                      {PLATFORMS.map((pl) => {
+                      {orderedPlatforms.map((pl) => {
                         const acc = connected.get(pl.id);
-                        const unavailable = !OAUTH_PLATFORMS.has(pl.id) && !acc;
+                        const credential = CREDENTIAL_PLATFORM_SET.has(pl.id);
+                        const unavailable = !OAUTH_PLATFORMS.has(pl.id) && !credential && !acc;
                         if (acc?.status === "pending_page") {
                           // Facebook OAuth done, Page not chosen yet — inline picker.
                           return (
@@ -311,7 +366,11 @@ export function UsersClient({
                         ) : (
                           <button
                             key={pl.id}
-                            onClick={() => !unavailable && connect(p.id, pl.id)}
+                            onClick={() => {
+                              if (unavailable) return;
+                              if (credential) openCredModal(p.id, pl.id);
+                              else connect(p.id, pl.id);
+                            }}
                             disabled={unavailable}
                             className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
                               unavailable
@@ -348,6 +407,62 @@ export function UsersClient({
           </tbody>
         </table>
       </div>
+
+      {credModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setCredModal(null)}
+        >
+          <div className="card w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900 dark:text-white">
+                <PlatformIcon platform={credModal.platform} size={18} />
+                Connect {PLATFORM_MAP[credModal.platform]?.name ?? credModal.platform}
+              </h2>
+              <button
+                onClick={() => setCredModal(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <label className="label mt-4" htmlFor="cred-input">
+              {CREDENTIAL_HELP[credModal.platform]?.label ?? "Webhook URL"}
+            </label>
+            <input
+              id="cred-input"
+              className="input"
+              placeholder={CREDENTIAL_HELP[credModal.platform]?.placeholder}
+              value={credInput}
+              onChange={(e) => setCredInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitCred()}
+              autoFocus
+            />
+            <p className="mt-1.5 text-xs text-slate-400">{CREDENTIAL_HELP[credModal.platform]?.hint}</p>
+
+            {credError && (
+              <p className="mt-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+                {credError}
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setCredModal(null)} className="btn-secondary text-sm">
+                Cancel
+              </button>
+              <button
+                onClick={submitCred}
+                disabled={busy || !credInput.trim()}
+                className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {busy ? "Connecting…" : "Connect"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
