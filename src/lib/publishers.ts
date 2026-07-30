@@ -11,6 +11,9 @@ import { publishToLinkedIn } from "./linkedin";
 import { publishToTikTok } from "./tiktok";
 import { publishToDiscord } from "./discord";
 import { publishToSlack } from "./slack";
+import { publishToYouTube } from "./youtube";
+import { publishToTelegram } from "./telegram";
+import { publishToThreads } from "./threads";
 
 // Builds a public URL a platform's servers can fetch a stored media file from.
 // Media-URL stubs (mime "url") are already public — pass them through.
@@ -31,7 +34,8 @@ export interface PublishContext {
   media: StoredFile[];
   mediaUrls: () => string[]; // lazy — only demands PUBLIC_BASE_URL when actually used
   caption: string; // adapted title + body
-  title: string; // adapted title alone (media card titles)
+  title: string; // adapted title alone (media card titles / video titles)
+  body: string; // adapted body alone (e.g. YouTube description, kept apart from the title)
   firstComment: string;
 }
 
@@ -90,6 +94,30 @@ export const REAL_PUBLISHERS: Record<string, PlatformPublisher> = {
   slack: (ctx) =>
     publishToSlack({
       webhookUrl: ctx.account.accessToken!,
+      text: ctx.caption,
+    }),
+  telegram: (ctx) =>
+    publishToTelegram({
+      token: ctx.account.accessToken!,
+      chatId: JSON.parse(ctx.account.meta || "{}").chatId,
+      type: ctx.type,
+      media: ctx.media,
+      text: ctx.caption,
+    }),
+  // YouTube: a titled platform — title and description stay separate.
+  youtube: (ctx) =>
+    publishToYouTube({
+      accessToken: ctx.account.accessToken!,
+      video: ctx.media[0],
+      title: ctx.title,
+      description: ctx.body,
+    }),
+  threads: (ctx) =>
+    publishToThreads({
+      userId: ctx.account.externalUserId!,
+      accessToken: ctx.account.accessToken!,
+      type: ctx.type as "video" | "photos" | "text",
+      mediaUrls: ctx.type === "text" ? [] : ctx.mediaUrls(),
       text: ctx.caption,
     }),
 };
