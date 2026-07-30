@@ -59,7 +59,7 @@ export const PLATFORM_MAP: Record<string, PlatformDef> = Object.fromEntries(
 // Platforms connected by pasting a credential (webhook URL / token) rather than
 // an OAuth redirect. The Users page shows these a credential form instead of a
 // "Connect" redirect, and /api/internal/social-accounts validates + stores them.
-export const CREDENTIAL_PLATFORMS = ["discord", "slack"] as const;
+export const CREDENTIAL_PLATFORMS = ["discord", "slack", "telegram"] as const;
 export const CREDENTIAL_PLATFORM_SET: ReadonlySet<string> = new Set(CREDENTIAL_PLATFORMS);
 
 // ── Analytics capability ─────────────────────────────────────────────────────

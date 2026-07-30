@@ -6,18 +6,45 @@ import { PlatformIcon } from "@/components/PlatformIcon";
 import { Select } from "@/components/Select";
 import { PLATFORMS, PLATFORM_MAP, CREDENTIAL_PLATFORM_SET } from "@/lib/platforms";
 
-// Where to find each credential-based platform's webhook URL.
-const CREDENTIAL_HELP: Record<string, { label: string; placeholder: string; hint: string }> = {
-  discord: {
-    label: "Discord webhook URL",
-    placeholder: "https://discord.com/api/webhooks/…",
-    hint: "In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.",
-  },
-  slack: {
-    label: "Slack incoming webhook URL",
-    placeholder: "https://hooks.slack.com/services/…",
-    hint: "In Slack: create an app → Incoming Webhooks → Add New Webhook to Workspace → copy the URL. A confirmation message is posted to verify it.",
-  },
+// The credential field(s) each webhook/token platform needs, with where to find
+// them. Keys match the /api/internal/social-accounts POST body.
+interface CredField {
+  key: string;
+  label: string;
+  placeholder: string;
+  hint: string;
+}
+const CREDENTIAL_FIELDS: Record<string, CredField[]> = {
+  discord: [
+    {
+      key: "webhookUrl",
+      label: "Discord webhook URL",
+      placeholder: "https://discord.com/api/webhooks/…",
+      hint: "In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.",
+    },
+  ],
+  slack: [
+    {
+      key: "webhookUrl",
+      label: "Slack incoming webhook URL",
+      placeholder: "https://hooks.slack.com/services/…",
+      hint: "At api.slack.com/apps → Create New App → pick the \"Blank app\" option (not 'From a manifest') → choose your workspace. Open Incoming Webhooks → Toggle it On → Add New Webhook to Workspace → Pick a channel → Allow → Copy the URL. Connecting posts a test message to that channel.",
+    },
+  ],
+  telegram: [
+    {
+      key: "botToken",
+      label: "Bot token",
+      placeholder: "123456789:AA…",
+      hint: "Create a bot with @BotFather in Telegram and paste the token it gives you.",
+    },
+    {
+      key: "chatId",
+      label: "Channel / chat ID",
+      placeholder: "@yourchannel or -1001234567890",
+      hint: "First add the bot to your channel as an admin. Public channel? Just use its @username. Private? Forward any message from it to @userinfobot in Telegram — it replies with the numeric id (like -1001234567890).",
+    },
+  ],
 };
 
 interface SocialAccount {
@@ -35,7 +62,7 @@ interface ProfileRow {
 }
 
 // Platforms with a real OAuth integration; the rest are shown as coming soon.
-const OAUTH_PLATFORMS = new Set(["instagram", "linkedin", "facebook", "tiktok"]);
+const OAUTH_PLATFORMS = new Set(["instagram", "linkedin", "facebook", "tiktok", "youtube", "threads"]);
 
 export function UsersClient({
   plan,
@@ -52,10 +79,13 @@ export function UsersClient({
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [pageIdInput, setPageIdInput] = useState("");
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-  // Credential-connect modal (Discord/Slack webhook paste).
+  // Credential-connect modal (webhook/token platforms — Discord, Slack, Telegram).
   const [credModal, setCredModal] = useState<{ profileId: string; platform: string } | null>(null);
-  const [credInput, setCredInput] = useState("");
+  const [credFields, setCredFields] = useState<Record<string, string>>({});
   const [credError, setCredError] = useState<string | null>(null);
+  // Telegram "detect my channels": bot token → channels the bot can see.
+  const [detecting, setDetecting] = useState(false);
+  const [detected, setDetected] = useState<{ id: string; title: string }[] | null>(null);
 
   // Surface an OAuth connect redirect result (?connected=<platform>&status=...)
   // then clean the URL.
@@ -111,22 +141,40 @@ export function UsersClient({
 
   function openCredModal(profileId: string, platform: string) {
     setCredModal({ profileId, platform });
-    setCredInput("");
+    setCredFields({});
     setCredError(null);
+    setDetected(null);
+  }
+
+  async function detectTelegramChats() {
+    const token = credFields.botToken?.trim();
+    if (!token) return;
+    setDetecting(true);
+    setCredError(null);
+    setDetected(null);
+    const res = await fetch("/api/internal/telegram/detect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ botToken: token }),
+    });
+    const data = await res.json();
+    setDetecting(false);
+    if (!data.success) return setCredError(data.error);
+    setDetected(data.chats);
   }
 
   async function submitCred() {
-    if (!credModal || !credInput.trim()) return;
+    if (!credModal) return;
+    const fields = CREDENTIAL_FIELDS[credModal.platform] ?? [];
+    if (fields.some((f) => !credFields[f.key]?.trim())) return;
     setBusy(true);
     setCredError(null);
+    const payload: Record<string, string> = { profileId: credModal.profileId, platform: credModal.platform };
+    for (const f of fields) payload[f.key] = credFields[f.key].trim();
     const res = await fetch("/api/internal/social-accounts", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        profileId: credModal.profileId,
-        platform: credModal.platform,
-        webhookUrl: credInput.trim(),
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     setBusy(false);
@@ -428,19 +476,64 @@ export function UsersClient({
               </button>
             </div>
 
-            <label className="label mt-4" htmlFor="cred-input">
-              {CREDENTIAL_HELP[credModal.platform]?.label ?? "Webhook URL"}
-            </label>
-            <input
-              id="cred-input"
-              className="input"
-              placeholder={CREDENTIAL_HELP[credModal.platform]?.placeholder}
-              value={credInput}
-              onChange={(e) => setCredInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submitCred()}
-              autoFocus
-            />
-            <p className="mt-1.5 text-xs text-slate-400">{CREDENTIAL_HELP[credModal.platform]?.hint}</p>
+            {(CREDENTIAL_FIELDS[credModal.platform] ?? []).map((field, i, arr) => {
+              // Reveal fields one at a time — each appears once all earlier ones
+              // are filled (e.g. Telegram's chat id shows only after the token).
+              const priorFilled = arr.slice(0, i).every((pf) => credFields[pf.key]?.trim());
+              if (!priorFilled) return null;
+              return (
+                <div key={field.key} className="mt-4">
+                  <label className="label" htmlFor={`cred-${field.key}`}>{field.label}</label>
+                  <input
+                    id={`cred-${field.key}`}
+                    className="input"
+                    placeholder={field.placeholder}
+                    value={credFields[field.key] ?? ""}
+                    onChange={(e) => setCredFields((f) => ({ ...f, [field.key]: e.target.value }))}
+                    onKeyDown={(e) => e.key === "Enter" && submitCred()}
+                    autoFocus={i === 0}
+                  />
+                  <p className="mt-1.5 text-xs text-slate-400">{field.hint}</p>
+                </div>
+              );
+            })}
+
+            {credModal.platform === "telegram" && !!credFields.botToken?.trim() && (
+              <div className="mt-2">
+                <button
+                  onClick={detectTelegramChats}
+                  disabled={detecting || !credFields.botToken?.trim()}
+                  className="text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50 disabled:no-underline cursor-pointer"
+                >
+                  {detecting ? "Detecting…" : "↻ Detect my channels"}
+                </button>
+                {detected?.length === 0 && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    None found — add the bot to your channel as admin, post a message there, then retry.
+                  </p>
+                )}
+                {detected && detected.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {detected.map((c) => {
+                      const active = credFields.chatId === c.id;
+                      return (
+                        <button
+                          key={c.id}
+                          onClick={() => setCredFields((f) => ({ ...f, chatId: c.id }))}
+                          className={`rounded-lg border px-2 py-1 text-xs cursor-pointer transition-colors ${
+                            active
+                              ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300"
+                              : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                          }`}
+                        >
+                          {c.title} <span className="text-slate-400">{c.id}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {credError && (
               <p className="mt-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-3 py-2 text-sm text-red-700 dark:text-red-300">
@@ -454,7 +547,7 @@ export function UsersClient({
               </button>
               <button
                 onClick={submitCred}
-                disabled={busy || !credInput.trim()}
+                disabled={busy || (CREDENTIAL_FIELDS[credModal.platform] ?? []).some((f) => !credFields[f.key]?.trim())}
                 className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {busy ? "Connecting…" : "Connect"}

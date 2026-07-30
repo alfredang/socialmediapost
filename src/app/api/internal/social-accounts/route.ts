@@ -5,20 +5,23 @@ import { fetchPageDirect } from "@/lib/facebook";
 import { CREDENTIAL_PLATFORM_SET } from "@/lib/platforms";
 import { validateDiscordWebhook } from "@/lib/discord";
 import { validateSlackWebhook } from "@/lib/slack";
+import { validateTelegram } from "@/lib/telegram";
 
 // OAuth accounts are created via the real OAuth flows (/api/auth/<platform>).
-// Webhook/credential platforms (Discord, Slack) are connected here via POST:
-// the pasted credential is validated against the platform before it's stored —
-// no unverified credential is ever saved.
+// Webhook/credential platforms (Discord, Slack, Telegram) are connected here via
+// POST: the pasted credential is validated against the platform before it's
+// stored — no unverified credential is ever saved. `accessToken` holds the
+// secret (webhook URL / bot token); `meta` holds any extras (chat/channel id).
 
-// POST — connect a credential-based platform: { profileId, platform, webhookUrl }.
+// POST — connect a credential-based platform.
+//   Discord/Slack: { profileId, platform, webhookUrl }
+//   Telegram:      { profileId, platform, botToken, chatId }
 export async function POST(req: NextRequest) {
   const auth = await requireSession();
   if (auth instanceof NextResponse) return auth;
 
   const body = await req.json().catch(() => ({}));
   const platform = String(body.platform ?? "").toLowerCase();
-  const webhookUrl = String(body.webhookUrl ?? "").trim();
 
   if (!CREDENTIAL_PLATFORM_SET.has(platform)) {
     return NextResponse.json(
@@ -30,26 +33,40 @@ export async function POST(req: NextRequest) {
   if (!profile) return NextResponse.json({ success: false, error: "Profile not found" }, { status: 404 });
 
   try {
-    let data: { handle: string; displayName: string; externalUserId: string; meta: string | null };
+    let data: { accessToken: string; handle: string; displayName: string; externalUserId: string; meta: string | null };
     if (platform === "discord") {
+      const webhookUrl = String(body.webhookUrl ?? "").trim();
       const info = await validateDiscordWebhook(webhookUrl);
       data = {
+        accessToken: webhookUrl,
         handle: info.name,
         displayName: info.name,
         externalUserId: info.id,
         meta: JSON.stringify({ channelId: info.channelId, guildId: info.guildId }),
       };
-    } else {
-      // slack
+    } else if (platform === "slack") {
+      const webhookUrl = String(body.webhookUrl ?? "").trim();
       await validateSlackWebhook(webhookUrl);
       const serviceId = webhookUrl.split("/services/")[1]?.split("/")[0] ?? "webhook";
-      data = { handle: "Slack", displayName: "Slack channel", externalUserId: serviceId, meta: null };
+      data = { accessToken: webhookUrl, handle: "Slack", displayName: "Slack channel", externalUserId: serviceId, meta: null };
+    } else {
+      // telegram — bot token + channel/chat id
+      const botToken = String(body.botToken ?? "").trim();
+      const chatId = String(body.chatId ?? "").trim();
+      const info = await validateTelegram(botToken, chatId);
+      data = {
+        accessToken: botToken,
+        handle: info.chatTitle,
+        displayName: info.chatTitle,
+        externalUserId: info.botId,
+        meta: JSON.stringify({ chatId }),
+      };
     }
 
     await db.socialAccount.upsert({
       where: { profileId_platform: { profileId: profile.id, platform } },
-      update: { ...data, accessToken: webhookUrl, status: "connected" },
-      create: { profileId: profile.id, platform, accessToken: webhookUrl, status: "connected", ...data },
+      update: { ...data, status: "connected" },
+      create: { profileId: profile.id, platform, status: "connected", ...data },
     });
     return NextResponse.json({ success: true });
   } catch (err) {

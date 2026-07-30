@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PlatformIcon } from "@/components/PlatformIcon";
 import { SchedulePicker } from "@/components/SchedulePicker";
@@ -95,6 +95,11 @@ export function UploadClient({ profiles }: { profiles: ProfileOpt[] }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; details?: { platform: string; success: boolean; url?: string; error?: string }[] } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  // The real host the app is served from (ngrok/public domain in dev, the live
+  // domain in prod) — so the example cURL never hardcodes localhost. Set after
+  // mount to keep SSR output stable.
+  const [apiBase, setApiBase] = useState("");
+  useEffect(() => setApiBase(window.location.origin), []);
 
   const profile = profiles.find((p) => p.id === profileId);
   const connectedMap = useMemo(
@@ -111,6 +116,9 @@ export function UploadClient({ profiles }: { profiles: ProfileOpt[] }) {
   // single Description. The main field is labelled accordingly.
   const hasTitled = selected.some((p) => PLATFORM_MAP[p]?.titleRole === "titled");
   const hasNonTitled = selected.some((p) => PLATFORM_MAP[p]?.titleRole !== "titled");
+  // The Description field only exists for titled platforms; when it's hidden its
+  // state must not leak into the preview or the post (e.g. stale AI copy).
+  const effectiveDescription = hasTitled ? description : "";
   const titleLabel = hasTitled ? "Title" : "Description";
 
   function toggle(platform: string) {
@@ -131,8 +139,16 @@ export function UploadClient({ profiles }: { profiles: ProfileOpt[] }) {
     const data = await res.json();
     setAiBusy(false);
     if (data.success) {
-      setTitle(data.title);
-      setDescription(`${data.description}\n\n${data.hashtags.join(" ")}`);
+      const caption = [data.description, data.hashtags.join(" ")].filter(Boolean).join("\n\n");
+      if (hasTitled) {
+        setTitle(data.title);
+        setDescription(caption);
+      } else {
+        // One visible field — put the whole caption there, don't strand text in
+        // the hidden Description.
+        setTitle([data.title, caption].filter(Boolean).join("\n\n"));
+        setDescription("");
+      }
     }
   }
 
@@ -148,8 +164,8 @@ export function UploadClient({ profiles }: { profiles: ProfileOpt[] }) {
   -H 'Authorization: Apikey your-api-key-here' \\
 ${mediaLine}  -F 'title="${(title || "Your Awesome Title").replace(/"/g, '\\"')}"' \\
   -F 'user="${profile?.name ?? "your_profile_user"}"' \\
-${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length ? "\n" : ""}${submission === "schedule" && scheduledAt ? `  -F 'scheduled_date=${new Date(scheduledAt).toISOString()}' \\\n` : ""}  -X POST http://localhost:3000/api/${endpoint}`;
-  }, [postType, files, title, profile, selected, submission, scheduledAt]);
+${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length ? "\n" : ""}${submission === "schedule" && scheduledAt ? `  -F 'scheduled_date=${new Date(scheduledAt).toISOString()}' \\\n` : ""}  -X POST ${apiBase || "https://your-domain.com"}/api/${endpoint}`;
+  }, [postType, files, title, profile, selected, submission, scheduledAt, apiBase]);
 
   async function submit() {
     if (!profile || selected.length === 0) return;
@@ -159,7 +175,7 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
     form.set("profileId", profile.id);
     form.set("type", postType);
     form.set("title", title);
-    form.set("description", description);
+    form.set("description", effectiveDescription);
     form.set("firstComment", firstComment);
     form.set("platforms", JSON.stringify(selected));
     form.set("overrides", JSON.stringify(overrides));
@@ -635,7 +651,7 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
 
           <button
             onClick={submit}
-            disabled={busy || selected.length === 0 || (!title && !description) || scheduleBlocked || mediaMissing}
+            disabled={busy || selected.length === 0 || (!title && !effectiveDescription) || scheduleBlocked || mediaMissing}
             className="btn-primary mt-5 w-full py-3"
           >
             {busy
@@ -700,7 +716,7 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Auto-adapted per platform</p>
               <ul className="mt-2 space-y-2">
                 {selected.slice(0, 5).map((p) => {
-                  const adapted = adaptContent(p, { type: postType, title, description, firstComment, overrides });
+                  const adapted = adaptContent(p, { type: postType, title, description: effectiveDescription, firstComment, overrides });
                   const def = PLATFORM_MAP[p];
                   return (
                     <li key={p} className="rounded-lg bg-slate-50 dark:bg-slate-800/60 p-2">

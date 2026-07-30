@@ -153,6 +153,7 @@ export async function publishPost(postId: string) {
         mediaUrls: () => media.map(publicMediaUrl),
         caption: [target.adaptedTitle, target.adaptedBody].filter(Boolean).join("\n\n"),
         title: target.adaptedTitle,
+        body: target.adaptedBody,
         firstComment: target.firstComment,
       });
       await db.postTarget.update({
