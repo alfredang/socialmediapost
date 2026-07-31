@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { randomBytes } from "crypto";
+import { hkdfSync, randomBytes } from "crypto";
 import { db } from "./db";
 
 // Every session cookie, whitelabel connect link and OAuth state is signed with
@@ -33,14 +33,41 @@ let devSecret: Uint8Array | null = null;
 
 const secret = sessionSecret();
 
+// Every token this module issues carries `sub = <accountId>`, but they are NOT
+// interchangeable: the session cookie authenticates the account owner, while
+// profile-share and oauth-state tokens are handed to untrusted third parties by
+// design (whitelabel connect links, and the `state` parameter that travels
+// through the user's address bar and the OAuth provider's logs).
+//
+// Signing them all with one key made those tokens usable as session cookies —
+// verification succeeded and nothing distinguished them, so a connect-link
+// recipient could authenticate as the agency that issued it. Each purpose now
+// gets its own key derived from SESSION_SECRET, so a token minted for one
+// purpose fails signature verification for any other. The `kind` claim is
+// checked as well, but the key separation is what makes cross-use impossible
+// rather than merely detected.
+type TokenKind = "session" | "profile-share" | "oauth-state";
+
+const keyCache = new Map<TokenKind, Uint8Array>();
+
+function keyFor(kind: TokenKind): Uint8Array {
+  const cached = keyCache.get(kind);
+  if (cached) return cached;
+  const derived = new Uint8Array(
+    hkdfSync("sha256", secret, new TextEncoder().encode("socialpost/token-key"), new TextEncoder().encode(kind), 32)
+  );
+  keyCache.set(kind, derived);
+  return derived;
+}
+
 const COOKIE = "sp_session";
 
 export async function createSession(accountId: string) {
-  const token = await new SignJWT({ sub: accountId })
+  const token = await new SignJWT({ sub: accountId, kind: "session" })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("30d")
-    .sign(secret);
+    .sign(keyFor("session"));
   const store = await cookies();
   store.set(COOKIE, token, {
     httpOnly: true,
@@ -60,7 +87,10 @@ export async function getSessionAccountId(): Promise<string | null> {
   const token = store.get(COOKIE)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, keyFor("session"));
+    // A token that verified under the session key but claims another purpose
+    // must never authenticate — belt and braces behind the key separation.
+    if (payload.kind !== "session") return null;
     return (payload.sub as string) ?? null;
   } catch {
     return null;
@@ -90,12 +120,12 @@ export async function signProfileJwt(accountId: string, profileName: string) {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("24h")
-    .sign(secret);
+    .sign(keyFor("profile-share"));
 }
 
 export async function verifyProfileJwt(token: string) {
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, keyFor("profile-share"));
     if (payload.kind !== "profile-share") return null;
     return { accountId: payload.sub as string, profile: payload.profile as string };
   } catch {
@@ -110,12 +140,12 @@ export async function signOAuthState(accountId: string, profileId: string) {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("10m")
-    .sign(secret);
+    .sign(keyFor("oauth-state"));
 }
 
 export async function verifyOAuthState(token: string) {
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, keyFor("oauth-state"));
     if (payload.kind !== "oauth-state") return null;
     return { accountId: payload.sub as string, profileId: payload.profileId as string };
   } catch {

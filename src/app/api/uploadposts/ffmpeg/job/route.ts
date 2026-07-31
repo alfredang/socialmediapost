@@ -38,6 +38,31 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── Quota check ───────────────────────────────────────────────────────────
+  // Runs BEFORE the input is read, because reading a media_url makes the server
+  // issue an outbound request on the caller's behalf. With the check after the
+  // download, a caller who was already over quota could still drive unlimited
+  // fetches — every rejected job was a free request.
+  const account = await db.account.findUnique({ where: { id: auth.accountId } });
+  if (!account) {
+    return NextResponse.json({ success: false, error: "Account not found" }, { status: 401 });
+  }
+  const plan = getPlan(account.plan);
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const used = await db.ffmpegJob.aggregate({
+    where: { accountId: auth.accountId, createdAt: { gte: monthStart } },
+    _sum: { minutes: true },
+  });
+  const usedMinutes = used._sum.minutes ?? 0;
+  if (usedMinutes >= plan.ffmpegMinutes) {
+    return NextResponse.json(
+      { success: false, error: `FFmpeg quota exceeded (${plan.ffmpegMinutes} min/month on ${plan.name})` },
+      { status: 429 }
+    );
+  }
+
   // ── Parse the request into { operation, params, inputKey } ────────────────
   let operation: string;
   let params: Record<string, unknown>;
@@ -74,6 +99,8 @@ export async function POST(req: NextRequest) {
       inputKey = await downloadToUploads(mediaUrl, inputExt);
     }
   } catch (err) {
+    // BlockedUrlError messages are safe to return (they name the caller's own
+    // URL, never an upstream response); everything else is already generic.
     const message = err instanceof Error ? err.message : "Could not read the request";
     return NextResponse.json({ success: false, error: message }, { status: 400 });
   }
@@ -93,25 +120,6 @@ export async function POST(req: NextRequest) {
     await unlink(uploadPath(inputKey)).catch(() => {});
     const message = err instanceof Error ? err.message : "Invalid parameters";
     return NextResponse.json({ success: false, error: message }, { status: 400 });
-  }
-
-  // ── Quota check ───────────────────────────────────────────────────────────
-  const account = await db.account.findUnique({ where: { id: auth.accountId } });
-  const plan = getPlan(account!.plan);
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const used = await db.ffmpegJob.aggregate({
-    where: { accountId: auth.accountId, createdAt: { gte: monthStart } },
-    _sum: { minutes: true },
-  });
-  const usedMinutes = used._sum.minutes ?? 0;
-  if (usedMinutes >= plan.ffmpegMinutes) {
-    await unlink(uploadPath(inputKey)).catch(() => {});
-    return NextResponse.json(
-      { success: false, error: `FFmpeg quota exceeded (${plan.ffmpegMinutes} min/month on ${plan.name})` },
-      { status: 429 }
-    );
   }
 
   // ── Run it ────────────────────────────────────────────────────────────────
