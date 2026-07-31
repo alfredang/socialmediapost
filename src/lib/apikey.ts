@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "./db";
 import { getPlan } from "./plans";
+import { uploadsUsedThisCycle } from "./usage";
 
 export function generateApiKey(): { key: string; hashed: string; prefix: string } {
   const key = "up_" + randomBytes(24).toString("hex");
@@ -49,12 +50,7 @@ export async function checkUploadQuota(accountId: string): Promise<NextResponse 
   const account = await db.account.findUnique({ where: { id: accountId } });
   if (!account) return NextResponse.json({ success: false, error: "Account not found" }, { status: 401 });
   const plan = getPlan(account.plan);
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const used = await db.post.count({
-    where: { profile: { accountId }, createdAt: { gte: monthStart }, status: { not: "draft" } },
-  });
+  const used = await uploadsUsedThisCycle(accountId);
   if (used >= plan.uploadsPerMonth) {
     return NextResponse.json(
       {

@@ -1,6 +1,7 @@
 import { requireSessionAccount } from "@/lib/session";
 import { db } from "@/lib/db";
 import { getPlan } from "@/lib/plans";
+import { monthlyUsage } from "@/lib/usage";
 import { ApiKeysClient } from "./api-keys-client";
 
 export const metadata = { title: "API Keys" };
@@ -10,18 +11,9 @@ export default async function ApiKeysPage() {
   const account = await requireSessionAccount();
   const plan = getPlan(account.plan);
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-
-  const [keys, apiCalls, ffmpegAgg, ffmpegCount] = await Promise.all([
+  const [keys, usage] = await Promise.all([
     db.apiKey.findMany({ where: { accountId: account.id }, orderBy: { createdAt: "asc" } }),
-    db.apiRequestLog.count({ where: { accountId: account.id, createdAt: { gte: monthStart } } }),
-    db.ffmpegJob.aggregate({
-      where: { accountId: account.id, createdAt: { gte: monthStart } },
-      _sum: { minutes: true },
-    }),
-    db.ffmpegJob.count({ where: { accountId: account.id, createdAt: { gte: monthStart } } }),
+    monthlyUsage(account.id),
   ]);
 
   const baseUrl = process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || "https://your-domain.com";
@@ -38,11 +30,7 @@ export default async function ApiKeysPage() {
         createdAt: k.createdAt.toISOString(),
         lastUsedAt: k.lastUsedAt?.toISOString() ?? null,
       }))}
-      usage={{
-        apiCalls,
-        ffmpegUsed: ffmpegAgg._sum.minutes ?? 0,
-        ffmpegRequests: ffmpegCount,
-      }}
+      usage={usage}
     />
   );
 }

@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
+import { safeFetch } from "./safe-fetch";
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads");
 
@@ -69,10 +70,14 @@ export async function ensureUploadDir(): Promise<void> {
 }
 
 // Downloads a remote media URL into uploads/ so ffmpeg can read it locally.
+// Goes through safeFetch: the URL comes from an API caller, so it must not be
+// usable to reach loopback, link-local or private-range hosts. The failure
+// message deliberately omits the upstream status — echoing it back turned this
+// into an oracle for probing which internal hosts and ports are alive.
 export async function downloadToUploads(url: string, ext: string): Promise<string> {
   await ensureUploadDir();
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Could not download media from ${url} (${res.status})`);
+  const res = await safeFetch(url);
+  if (!res.ok) throw new Error("Could not download the media URL.");
   const key = newUploadKey(ext);
   await writeFile(uploadPath(key), Buffer.from(await res.arrayBuffer()));
   return key;
@@ -83,8 +88,10 @@ export async function downloadToUploads(url: string, ext: string): Promise<strin
 // mode stores { path: "", name: <url>, mime: "url" } stubs; those are fetched.
 export async function readStoredFile(file: StoredFile): Promise<Buffer> {
   if (file.mime === "url") {
-    const res = await fetch(file.name);
-    if (!res.ok) throw new Error(`Could not download media from ${file.name} (${res.status})`);
+    // Same untrusted-URL path as downloadToUploads — sanitizeStoredMedia only
+    // checks the http(s) prefix, so the host is still caller-chosen here.
+    const res = await safeFetch(file.name);
+    if (!res.ok) throw new Error("Could not download the media URL.");
     return Buffer.from(await res.arrayBuffer());
   }
   try {

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Select } from "@/components/Select";
+import { redirectToStripe } from "@/lib/stripe-redirect";
 
 function Card({ icon, title, desc, children }: { icon: string; title: string; desc: string; children?: React.ReactNode }) {
   return (
@@ -29,16 +30,42 @@ export function ProfileClient({
   plan,
   calendarWeekStart,
   webhookUrl,
+  hasBillingAccount,
+  subscriptionStatus,
+  usage,
 }: {
   email: string;
   plan: { id: string; name: string };
   calendarWeekStart: string;
   webhookUrl: string;
+  hasBillingAccount: boolean;
+  subscriptionStatus: string | null;
+  usage: { uploadsUsed: number; uploadsQuota: number; ffmpegUsed: number; ffmpegQuota: number };
 }) {
   const router = useRouter();
   const [week, setWeek] = useState(calendarWeekStart);
   const [webhook, setWebhook] = useState(webhookUrl);
   const [webhookSaved, setWebhookSaved] = useState(false);
+  const [portalBusy, setPortalBusy] = useState(false);
+  const [portalError, setPortalError] = useState<string | null>(null);
+
+  async function openPortal() {
+    setPortalError(null);
+    setPortalBusy(true);
+    try {
+      const res = await fetch("/api/internal/billing/portal", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setPortalError(data.error || `Could not open the billing portal (HTTP ${res.status}).`);
+        setPortalBusy(false);
+        return;
+      }
+      redirectToStripe(data.url);
+    } catch (e) {
+      setPortalError(e instanceof Error ? e.message : "Could not reach the billing service.");
+      setPortalBusy(false);
+    }
+  }
 
   async function patch(data: object) {
     await fetch("/api/internal/account", {
@@ -88,14 +115,73 @@ export function ProfileClient({
         </div>
         <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
           Welcome to your <strong>profile page</strong> on <strong>SocialPost</strong>. View your
-          account details and manage your subscription. Billing here is simulated for the demo —
-          switching plans generates real invoices in your account.
+          account details and manage your subscription. Payments are processed by Stripe — card
+          details never reach our servers.
         </p>
       </section>
 
-      <Card icon="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6ZM14 2v6h6M16 13H8M16 17H8M10 9H8" title="Invoices & Billing" desc="View your legally valid invoices or update your plan.">
-        <Link href="/profile/invoices" className="btn-primary">📄 View Invoices</Link>
+      {/* Plan usage */}
+      <section className="card p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-slate-900 dark:text-white">
+              Plan usage
+              <span className="ml-2 rounded-md bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 text-xs font-bold uppercase text-emerald-700 dark:text-emerald-300">
+                {plan.name}
+              </span>
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Resets on the 1st of each month.
+              {subscriptionStatus === "past_due" && (
+                <span className="ml-1 font-semibold text-red-600 dark:text-red-400">Payment past due.</span>
+              )}
+            </p>
+          </div>
+          <Link href="/pricing" className="btn-secondary text-sm">Change plan →</Link>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {[
+            { label: "Uploads", used: usage.uploadsUsed, quota: usage.uploadsQuota, unit: "" },
+            { label: "FFmpeg minutes", used: usage.ffmpegUsed, quota: usage.ffmpegQuota, unit: " min" },
+          ].map((m) => {
+            const pct = m.quota > 0 ? Math.min(100, (m.used / m.quota) * 100) : 0;
+            const atLimit = m.used >= m.quota;
+            return (
+              <div key={m.label}>
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span>{m.label}</span>
+                  <span>
+                    {m.used.toLocaleString(undefined, { maximumFractionDigits: 1 })} / {m.quota.toLocaleString()}
+                    {m.unit}
+                  </span>
+                </div>
+                <div className="mt-1 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${atLimit ? "bg-red-500" : "bg-emerald-500"}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <Card icon="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6ZM14 2v6h6M16 13H8M16 17H8M10 9H8" title="Invoices & Billing" desc="View invoices issued by Stripe, or update your card and plan.">
+        <span className="flex flex-wrap items-center gap-2">
+          {hasBillingAccount && (
+            <button onClick={openPortal} disabled={portalBusy} className="btn-secondary">
+              {portalBusy ? "Opening…" : "💳 Manage billing"}
+            </button>
+          )}
+          <Link href="/profile/invoices" className="btn-primary">📄 View Invoices</Link>
+        </span>
       </Card>
+      {portalError && (
+        <p className="-mt-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 px-4 py-2 text-sm text-red-700 dark:text-red-300">
+          {portalError}
+        </p>
+      )}
 
       <Card icon="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" title="Calendar Preferences" desc="Choose which day your calendar week starts on.">
         <Select

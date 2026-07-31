@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { authenticateApiKey } from "@/lib/apikey";
 import { getPlan } from "@/lib/plans";
+import { uploadsUsedThisCycle } from "@/lib/usage";
 
 // GET /api/uploadposts/me — validate key, return account + plan info
 export async function GET(req: NextRequest) {
@@ -15,12 +16,7 @@ export async function GET(req: NextRequest) {
   if (!account) return NextResponse.json({ success: false, error: "Account not found" }, { status: 404 });
   const plan = getPlan(account.plan);
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const uploadsThisMonth = await db.post.count({
-    where: { profile: { accountId: account.id }, createdAt: { gte: monthStart }, status: { not: "draft" } },
-  });
+  const uploadsThisMonth = await uploadsUsedThisCycle(account.id);
 
   return NextResponse.json({
     success: true,
