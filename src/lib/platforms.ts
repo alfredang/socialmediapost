@@ -37,7 +37,7 @@ export const PLATFORMS: PlatformDef[] = [
   { id: "threads", name: "Threads", color: "#000000", emoji: "🧵", supports: ["video", "photos", "text"], titleMax: 500, bodyMax: 500, photosMax: 20, videoMaxSeconds: 300, firstComment: true, hashtagStyle: "inline", titleRole: "merge", notes: "500 chars, video ≤5 min" },
   { id: "pinterest", name: "Pinterest", color: "#BD081C", emoji: "📌", supports: ["video", "photos"], titleMax: 100, bodyMax: 500, photosMax: 5, videoMaxSeconds: 900, firstComment: false, hashtagStyle: "none", titleRole: "titled", notes: "Pin title ≤100, description ≤500, board required" },
   { id: "reddit", name: "Reddit", color: "#FF4500", emoji: "👽", supports: ["video", "photos", "text"], titleMax: 300, bodyMax: 40000, photosMax: 20, videoMaxSeconds: 900, firstComment: true, hashtagStyle: "none", titleRole: "titled", notes: "Title ≤300, subreddit required" },
-  { id: "bluesky", name: "Bluesky", color: "#0285FF", emoji: "🦋", supports: ["video", "photos", "text"], titleMax: 300, bodyMax: 300, photosMax: 4, videoMaxSeconds: 60, firstComment: true, hashtagStyle: "inline", titleRole: "merge", notes: "300 graphemes, video ≤60s" },
+  { id: "bluesky", name: "Bluesky", color: "#0285FF", emoji: "🦋", supports: ["video", "photos", "text"], titleMax: 300, bodyMax: 300, photosMax: 4, videoMaxSeconds: 180, firstComment: true, hashtagStyle: "inline", titleRole: "merge", notes: "300 graphemes, images ≤1MB each, video ≤3 min" },
   { id: "google_business", name: "Google Business", color: "#4285F4", emoji: "🏢", supports: ["video", "photos", "text"], titleMax: 1500, bodyMax: 1500, photosMax: 10, videoMaxSeconds: 30, firstComment: false, hashtagStyle: "none", titleRole: "merge", notes: "Business profile updates ≤1500 chars" },
   { id: "discord", name: "Discord", color: "#5865F2", emoji: "🎮", supports: ["video", "photos", "text"], titleMax: 2000, bodyMax: 2000, photosMax: 10, videoMaxSeconds: 600, firstComment: false, hashtagStyle: "none", titleRole: "merge", notes: "Webhook message ≤2000 chars" },
   { id: "telegram", name: "Telegram", color: "#26A5E4", emoji: "✈️", supports: ["video", "photos", "text"], titleMax: 4096, bodyMax: 4096, photosMax: 10, videoMaxSeconds: 3600, firstComment: false, hashtagStyle: "inline", titleRole: "merge", notes: "Channel post ≤4096 chars (1024 caption)" },
@@ -56,11 +56,40 @@ export const PLATFORM_MAP: Record<string, PlatformDef> = Object.fromEntries(
   PLATFORMS.map((p) => [p.id, p])
 );
 
-// Platforms connected by pasting a credential (webhook URL / token) rather than
-// an OAuth redirect. The Users page shows these a credential form instead of a
-// "Connect" redirect, and /api/internal/social-accounts validates + stores them.
-export const CREDENTIAL_PLATFORMS = ["discord", "slack", "telegram"] as const;
+// ── Connectable platforms ────────────────────────────────────────────────────
+// The two lists below are the single source of truth for "can this platform be
+// connected at all". Every UI availability check derives from them, and
+// publishers.ts `satisfies Record<ConnectablePlatform, …>` — so adding an id
+// here without shipping a publisher (or vice versa) is a compile error, not a
+// grey button that silently lies.
+
+// Connected through a real OAuth redirect (/api/auth/<platform>).
+export const OAUTH_PLATFORMS = [
+  "instagram",
+  "facebook",
+  "linkedin",
+  "tiktok",
+  "youtube",
+  "threads",
+] as const;
+export const OAUTH_PLATFORM_SET: ReadonlySet<string> = new Set(OAUTH_PLATFORMS);
+
+// Connected by pasting a credential (webhook URL / token / app password) rather
+// than an OAuth redirect. The Users page shows these a credential form instead
+// of a "Connect" redirect, and /api/internal/social-accounts validates + stores
+// them. These need a session, so they are NOT offered on the whitelabel
+// /connect page — an end user there can only run OAuth.
+export const CREDENTIAL_PLATFORMS = ["discord", "slack", "telegram", "bluesky"] as const;
 export const CREDENTIAL_PLATFORM_SET: ReadonlySet<string> = new Set(CREDENTIAL_PLATFORMS);
+
+export type ConnectablePlatform =
+  | (typeof OAUTH_PLATFORMS)[number]
+  | (typeof CREDENTIAL_PLATFORMS)[number];
+
+export const CONNECTABLE_PLATFORM_SET: ReadonlySet<string> = new Set<string>([
+  ...OAUTH_PLATFORMS,
+  ...CREDENTIAL_PLATFORMS,
+]);
 
 // ── Analytics capability ─────────────────────────────────────────────────────
 // The metrics SocialPost can actually collect for each platform, in display

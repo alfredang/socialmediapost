@@ -3,12 +3,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { PlatformIcon } from "@/components/PlatformIcon";
-import { PLATFORMS, PLATFORM_MAP } from "@/lib/platforms";
-
-// Platforms with a real OAuth integration. A whitelabel user can only connect
-// these — there is no way to "add" an account by typing a handle, because an
-// account without a provider token cannot publish anything.
-const OAUTH_PLATFORMS = ["instagram", "facebook", "linkedin", "tiktok"] as const;
+import { PLATFORMS, PLATFORM_MAP, OAUTH_PLATFORM_SET } from "@/lib/platforms";
 
 const STATUS_MESSAGES: Record<string, { kind: "ok" | "err"; text: string }> = {
   connected: { kind: "ok", text: "Account connected." },
@@ -51,9 +46,10 @@ export function ConnectClient({
     window.history.replaceState({}, "", url);
   }, [platform, status]);
 
-  const available = PLATFORMS.filter((p) =>
-    (OAUTH_PLATFORMS as readonly string[]).includes(p.id)
-  );
+  // OAuth only. A whitelabel user can't "add" an account by typing a handle (an
+  // account without a provider token cannot publish), and the credential
+  // platforms connect through a session-authenticated form they don't have.
+  const available = PLATFORMS.filter((p) => OAUTH_PLATFORM_SET.has(p.id));
 
   return (
     <>
