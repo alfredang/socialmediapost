@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PlatformIcon } from "@/components/PlatformIcon";
 import { Select } from "@/components/Select";
-import { PLATFORMS, PLATFORM_MAP, CREDENTIAL_PLATFORM_SET } from "@/lib/platforms";
+import {
+  PLATFORMS,
+  PLATFORM_MAP,
+  CREDENTIAL_PLATFORM_SET,
+  CONNECTABLE_PLATFORM_SET,
+} from "@/lib/platforms";
 
 // The credential field(s) each webhook/token platform needs, with where to find
 // them. Keys match the /api/internal/social-accounts POST body.
@@ -29,6 +34,20 @@ const CREDENTIAL_FIELDS: Record<string, CredField[]> = {
       label: "Slack incoming webhook URL",
       placeholder: "https://hooks.slack.com/services/…",
       hint: "At api.slack.com/apps → Create New App → pick the \"Blank app\" option (not 'From a manifest') → choose your workspace. Open Incoming Webhooks → Toggle it On → Add New Webhook to Workspace → Pick a channel → Allow → Copy the URL. Connecting posts a test message to that channel.",
+    },
+  ],
+  bluesky: [
+    {
+      key: "handle",
+      label: "Bluesky handle",
+      placeholder: "you.bsky.social",
+      hint: "Your full handle including the domain — the one shown under your display name.",
+    },
+    {
+      key: "appPassword",
+      label: "App password",
+      placeholder: "xxxx-xxxx-xxxx-xxxx",
+      hint: "In Bluesky: Settings → Privacy and security → App passwords → Add App Password. Use an app password, never your real one — you can revoke it any time without changing your login.",
     },
   ],
   telegram: [
@@ -60,9 +79,6 @@ interface ProfileRow {
   name: string;
   accounts: SocialAccount[];
 }
-
-// Platforms with a real OAuth integration; the rest are shown as coming soon.
-const OAUTH_PLATFORMS = new Set(["instagram", "linkedin", "facebook", "tiktok", "youtube", "threads"]);
 
 export function UsersClient({
   plan,
@@ -306,7 +322,7 @@ export function UsersClient({
               // "Coming soon" ones sink to the bottom. Stable sort keeps registry
               // order within each group.
               const isAvailable = (pl: (typeof PLATFORMS)[number]) =>
-                OAUTH_PLATFORMS.has(pl.id) || CREDENTIAL_PLATFORM_SET.has(pl.id) || connected.has(pl.id);
+                CONNECTABLE_PLATFORM_SET.has(pl.id) || connected.has(pl.id);
               const orderedPlatforms = [...PLATFORMS].sort(
                 (a, b) => Number(isAvailable(b)) - Number(isAvailable(a))
               );
@@ -339,7 +355,7 @@ export function UsersClient({
                       {orderedPlatforms.map((pl) => {
                         const acc = connected.get(pl.id);
                         const credential = CREDENTIAL_PLATFORM_SET.has(pl.id);
-                        const unavailable = !OAUTH_PLATFORMS.has(pl.id) && !credential && !acc;
+                        const unavailable = !CONNECTABLE_PLATFORM_SET.has(pl.id) && !acc;
                         if (acc?.status === "pending_page") {
                           // Facebook OAuth done, Page not chosen yet — inline picker.
                           return (

@@ -6,6 +6,7 @@ import { CREDENTIAL_PLATFORM_SET } from "@/lib/platforms";
 import { validateDiscordWebhook } from "@/lib/discord";
 import { validateSlackWebhook } from "@/lib/slack";
 import { validateTelegram } from "@/lib/telegram";
+import { validateBluesky } from "@/lib/bluesky";
 
 // OAuth accounts are created via the real OAuth flows (/api/auth/<platform>).
 // Webhook/credential platforms (Discord, Slack, Telegram) are connected here via
@@ -16,6 +17,7 @@ import { validateTelegram } from "@/lib/telegram";
 // POST — connect a credential-based platform.
 //   Discord/Slack: { profileId, platform, webhookUrl }
 //   Telegram:      { profileId, platform, botToken, chatId }
+//   Bluesky:       { profileId, platform, handle, appPassword }
 export async function POST(req: NextRequest) {
   const auth = await requireSession();
   if (auth instanceof NextResponse) return auth;
@@ -49,6 +51,18 @@ export async function POST(req: NextRequest) {
       await validateSlackWebhook(webhookUrl);
       const serviceId = webhookUrl.split("/services/")[1]?.split("/")[0] ?? "webhook";
       data = { accessToken: webhookUrl, handle: "Slack", displayName: "Slack channel", externalUserId: serviceId, meta: null };
+    } else if (platform === "bluesky") {
+      // handle + app password; the app password itself is the stored credential
+      // (a fresh session is minted per publish).
+      const appPassword = String(body.appPassword ?? "").trim();
+      const info = await validateBluesky(String(body.handle ?? ""), appPassword);
+      data = {
+        accessToken: appPassword,
+        handle: info.handle,
+        displayName: `@${info.handle}`,
+        externalUserId: info.did,
+        meta: null,
+      };
     } else {
       // telegram — bot token + channel/chat id
       const botToken = String(body.botToken ?? "").trim();

@@ -13,6 +13,7 @@ import { stat } from "fs/promises";
 const exec = promisify(execFile);
 
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
+const FFPROBE = process.env.FFPROBE_PATH || "ffprobe";
 
 export class FfmpegUnavailableError extends Error {
   constructor() {
@@ -34,6 +35,41 @@ export async function ffmpegAvailable(): Promise<boolean> {
     available = false;
   }
   return available;
+}
+
+export interface VideoProbe {
+  width: number;
+  height: number;
+  duration: number; // seconds; 0 when the container doesn't report one
+}
+
+// Reads a video's dimensions and duration. Returns null when ffprobe isn't
+// installed or can't read the file — ffmpeg is optional in this app, so callers
+// must degrade (skip an optional aspect ratio, skip a length check) rather than
+// fail a publish over a missing binary. Never pass a caller-supplied path here:
+// keys come from sanitizeStoredMedia, which is basename-only.
+export async function probeVideo(absPath: string): Promise<VideoProbe | null> {
+  try {
+    const { stdout } = await exec(
+      FFPROBE,
+      [
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height:format=duration",
+        "-of", "json",
+        absPath,
+      ],
+      { timeout: 30_000 }
+    );
+    const data = JSON.parse(stdout);
+    const width = Number(data.streams?.[0]?.width);
+    const height = Number(data.streams?.[0]?.height);
+    if (!width || !height) return null;
+    const duration = Number(data.format?.duration);
+    return { width, height, duration: Number.isFinite(duration) ? duration : 0 };
+  } catch {
+    return null;
+  }
 }
 
 export const OPERATIONS = [

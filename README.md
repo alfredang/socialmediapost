@@ -18,7 +18,7 @@
 - **AI copy assistant** — captions + hashtags (uses `ANTHROPIC_API_KEY` if set, offline heuristic otherwise)
 - **Dark/light theme**, sidebar dashboard, notifications, team management, simulated billing with invoices
 
-> **What's real:** Instagram, Facebook, LinkedIn and TikTok publish through their live APIs with OAuth tokens; the other platforms in the registry carry constraints/adaptation rules only and fail with a clear "integration is not yet available" rather than pretending to post. Analytics are collected from the same four APIs — nothing is generated, and a metric a platform won't expose is stored as `NULL`, not `0`. Billing is still **simulated** (plan switches mint invoices without charging anything).
+> **What's real:** ten of the 22 networks publish for real — Instagram, Facebook, LinkedIn, TikTok, YouTube and Threads over OAuth, plus Discord, Slack, Telegram and Bluesky via a pasted credential. The remaining registry entries carry constraints/adaptation rules only and fail with a clear "integration is not yet available" rather than pretending to post. Analytics are collected from the Instagram, Facebook, TikTok and LinkedIn APIs — nothing is generated, and a metric a platform won't expose is stored as `NULL`, not `0`. Billing is still **simulated** (plan switches mint invoices without charging anything).
 
 ## Quick start
 
