@@ -3,26 +3,108 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PLANS, PLAN_PRICING, PlanId } from "@/lib/plans";
+import { redirectToStripe } from "@/lib/stripe-redirect";
 
-export function PricingClient({ currentPlan, currentInterval }: { currentPlan: string; currentInterval: string }) {
+type Subscription = {
+  status: string | null;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: string | null;
+  hasCustomer: boolean;
+};
+
+type Usage = { uploadsUsed: number; uploadsQuota: number; ffmpegUsed: number; ffmpegQuota: number };
+
+export function PricingClient({
+  currentPlan,
+  currentInterval,
+  checkoutResult,
+  billingConfigured,
+  subscription,
+  usage,
+}: {
+  currentPlan: string;
+  currentInterval: string;
+  checkoutResult: string | null;
+  billingConfigured: boolean;
+  subscription: Subscription;
+  usage: Usage;
+}) {
   const router = useRouter();
   const [interval, setInterval_] = useState<"monthly" | "yearly">(currentInterval === "yearly" ? "yearly" : "monthly");
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  async function switchPlan(plan: string) {
-    if (!window.confirm(`Switch to the ${plan} plan (${interval})? An invoice will be generated.`)) return;
+  // Paid plans are entitlements Stripe grants after payment — this only opens
+  // checkout. The plan itself changes when the webhook confirms the charge.
+  async function subscribe(plan: string) {
+    setError(null);
+    if (!billingConfigured) {
+      setError("Billing is not configured on this deployment — STRIPE_SECRET_KEY is not set.");
+      return;
+    }
     setBusy(plan);
-    await fetch("/api/internal/plan", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ plan, interval }),
-    });
+    try {
+      const res = await fetch("/api/internal/billing/checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan, interval }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setError(data.error || `Could not start checkout (HTTP ${res.status}).`);
+        setBusy(null);
+        return;
+      }
+      redirectToStripe(data.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reach the billing service.");
+      setBusy(null);
+    }
+  }
+
+  async function downgradeToFree() {
+    const msg = subscription.status
+      ? "Cancel your subscription? You keep your current plan until the end of the paid period, then move to Free."
+      : "Switch to the Free plan?";
+    if (!window.confirm(msg)) return;
+    setError(null);
+    setBusy("free");
+    try {
+      const res = await fetch("/api/internal/plan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: "free" }),
+      });
+      const data = await res.json();
+      if (!res.ok) setError(data.error || `Could not change plan (HTTP ${res.status}).`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reach the billing service.");
+    }
     setBusy(null);
     router.refresh();
   }
 
+  async function openPortal() {
+    setError(null);
+    setBusy("portal");
+    try {
+      const res = await fetch("/api/internal/billing/portal", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setError(data.error || `Could not open the billing portal (HTTP ${res.status}).`);
+        setBusy(null);
+        return;
+      }
+      redirectToStripe(data.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reach the billing service.");
+      setBusy(null);
+    }
+  }
+
   const free = PLANS[0];
   const paid = PLANS.slice(1);
+  const currentPlanName = PLANS.find((p) => p.id === currentPlan)?.name ?? "Free";
 
   return (
     <div>
@@ -50,8 +132,87 @@ export function PricingClient({ currentPlan, currentInterval }: { currentPlan: s
 
         <div className="mt-4 flex flex-wrap items-center justify-center gap-5 text-xs text-slate-500 dark:text-slate-400">
           <span>🛡 15-day money-back</span>
-          <span>🔒 Secure simulated billing</span>
+          <span>🔒 Secure payments by Stripe</span>
           <span>✅ Official APIs · no scraping</span>
+        </div>
+      </div>
+
+      {checkoutResult === "success" && (
+        <div className="mt-6 rounded-xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950 p-4 text-sm text-green-800 dark:text-green-300">
+          Payment received — thank you. Your plan updates as soon as Stripe confirms the subscription, usually within
+          a few seconds. Refresh if the tier below still looks stale.
+        </div>
+      )}
+      {checkoutResult === "cancelled" && (
+        <div className="mt-6 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-4 text-sm text-slate-600 dark:text-slate-300">
+          Checkout cancelled — you have not been charged and your plan is unchanged.
+        </div>
+      )}
+      {error && (
+        <div className="mt-6 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 p-4 text-sm text-red-700 dark:text-red-300">
+          {error}
+        </div>
+      )}
+      {!billingConfigured && (
+        <div className="mt-6 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 p-4 text-sm text-amber-800 dark:text-amber-300">
+          <strong>Billing is not configured on this deployment.</strong> Paid plans cannot be purchased until
+          <code className="mx-1 font-mono text-xs">STRIPE_SECRET_KEY</code> and
+          <code className="mx-1 font-mono text-xs">STRIPE_WEBHOOK_SECRET</code> are set.
+        </div>
+      )}
+
+      {/* Usage on the current plan */}
+      <div className="card mt-6 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+              Your usage this cycle
+              <span className="ml-2 rounded-md bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 text-xs font-bold uppercase text-emerald-700 dark:text-emerald-300">
+                {currentPlanName}
+              </span>
+            </h2>
+            {subscription.cancelAtPeriodEnd && subscription.currentPeriodEnd && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                Cancels on {new Date(subscription.currentPeriodEnd).toLocaleDateString()} — you keep this plan until then.
+              </p>
+            )}
+            {!subscription.cancelAtPeriodEnd && subscription.status === "past_due" && (
+              <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                Payment is past due — update your card to restore your plan.
+              </p>
+            )}
+          </div>
+          {subscription.hasCustomer && (
+            <button onClick={openPortal} disabled={busy !== null} className="btn-secondary text-sm">
+              {busy === "portal" ? "Opening…" : "Manage billing →"}
+            </button>
+          )}
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {[
+            { label: "Uploads", used: usage.uploadsUsed, quota: usage.uploadsQuota, unit: "" },
+            { label: "FFmpeg minutes", used: usage.ffmpegUsed, quota: usage.ffmpegQuota, unit: " min" },
+          ].map((m) => {
+            const pct = m.quota > 0 ? Math.min(100, (m.used / m.quota) * 100) : 0;
+            const atLimit = m.used >= m.quota;
+            return (
+              <div key={m.label}>
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span>{m.label}</span>
+                  <span>
+                    {m.used.toLocaleString(undefined, { maximumFractionDigits: 1 })} / {m.quota.toLocaleString()}
+                    {m.unit}
+                  </span>
+                </div>
+                <div className="mt-1 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${atLimit ? "bg-red-500" : "bg-emerald-500"}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -71,7 +232,9 @@ export function PricingClient({ currentPlan, currentInterval }: { currentPlan: s
           </span>
         ))}
         {currentPlan !== "free" ? (
-          <button onClick={() => switchPlan("free")} className="btn-secondary text-sm">Downgrade</button>
+          <button onClick={downgradeToFree} disabled={busy !== null} className="btn-secondary text-sm">
+            {busy === "free" ? "Cancelling…" : subscription.status ? "Cancel subscription" : "Downgrade"}
+          </button>
         ) : (
           <span className="rounded-full bg-green-50 dark:bg-green-950 px-3 py-1 text-xs font-medium text-green-700 dark:text-green-400">✓ Current plan</span>
         )}
@@ -114,11 +277,17 @@ export function PricingClient({ currentPlan, currentInterval }: { currentPlan: s
                 </p>
               )}
               <button
-                onClick={() => switchPlan(plan.id)}
-                disabled={isCurrent || busy !== null}
+                onClick={() => subscribe(plan.id)}
+                disabled={isCurrent || busy !== null || !billingConfigured}
                 className={`${plan.popular ? "btn-primary" : "btn-secondary"} mt-5 w-full py-2.5`}
               >
-                {isCurrent ? "Current plan" : busy === plan.id ? "Switching…" : "Switch plan →"}
+                {isCurrent
+                  ? "Current plan"
+                  : busy === plan.id
+                    ? "Opening checkout…"
+                    : subscription.status
+                      ? "Change plan →"
+                      : "Subscribe →"}
               </button>
               <p className="mt-5 text-xs font-bold uppercase tracking-widest text-slate-400">What&apos;s included</p>
               <ul className="mt-2 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">

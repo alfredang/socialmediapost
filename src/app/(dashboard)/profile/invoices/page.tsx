@@ -18,7 +18,7 @@ export default async function InvoicesPage() {
       <Link href="/profile" className="text-sm text-slate-500 dark:text-slate-400 hover:text-emerald-600">← Back to profile</Link>
       <h1 className="mt-3 text-3xl font-extrabold text-slate-900 dark:text-white">Invoices</h1>
       <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-        Legally valid invoices issued for your SocialPost subscription. Click <strong>View</strong> to
+        Invoices issued by Stripe for your SocialPost subscription. Click <strong>View</strong> to
         open the invoice or <strong>PDF</strong> for the download.
       </p>
 
@@ -41,12 +41,33 @@ export default async function InvoicesPage() {
               <tr key={inv.id} className="border-b border-slate-100 dark:border-slate-800">
                 <td className="px-5 py-3 font-mono text-slate-900 dark:text-white">{inv.number}</td>
                 <td className="px-5 py-3 text-slate-500 dark:text-slate-400">{inv.createdAt.toLocaleDateString("en-GB")}</td>
-                <td className="px-5 py-3 font-semibold text-slate-900 dark:text-white">${inv.total.toFixed(2)}</td>
+                <td className="px-5 py-3 font-semibold text-slate-900 dark:text-white">
+                  {inv.currency.toUpperCase() === "USD" ? "$" : ""}
+                  {inv.total.toFixed(2)}
+                  {inv.currency.toUpperCase() !== "USD" && ` ${inv.currency.toUpperCase()}`}
+                </td>
                 <td className="px-5 py-3"><StatusBadge status={inv.status} /></td>
                 <td className="px-5 py-3 text-right">
                   <span className="inline-flex gap-2">
-                    <a href={`/api/internal/invoices/${inv.id}`} target="_blank" className="btn-secondary px-3 py-1 text-xs">↗ View</a>
-                    <a href={`/api/internal/invoices/${inv.id}?download=1`} className="btn-primary px-3 py-1 text-xs">📄 PDF</a>
+                    {/* Stripe's own hosted invoice and PDF are the authoritative
+                        documents whenever we have them; the local renderer is
+                        the fallback for rows predating Stripe billing. */}
+                    <a
+                      href={inv.hostedInvoiceUrl ?? `/api/internal/invoices/${inv.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary px-3 py-1 text-xs"
+                    >
+                      ↗ View
+                    </a>
+                    <a
+                      href={inv.invoicePdfUrl ?? `/api/internal/invoices/${inv.id}?download=1`}
+                      target={inv.invoicePdfUrl ? "_blank" : undefined}
+                      rel="noopener noreferrer"
+                      className="btn-primary px-3 py-1 text-xs"
+                    >
+                      📄 PDF
+                    </a>
                   </span>
                 </td>
               </tr>

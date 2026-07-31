@@ -13,8 +13,18 @@ model Account {
   name              String?
   role              String   @default("user") // user|admin
   passwordHash      String
-  plan              String   @default("basic") // free|basic|professional|advanced|business
+  // Never default to a paid tier: a row created without an explicit plan must
+  // land on the free plan, not silently receive a plan nobody paid for.
+  plan              String   @default("free") // free|basic|professional|advanced|business
   planInterval      String   @default("monthly") // monthly|yearly
+
+  // Stripe linkage. `plan` above is a cache of what Stripe says this account is
+  // entitled to — only the webhook may write it, never a user-facing request.
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  subscriptionStatus   String? // active|trialing|past_due|canceled|incomplete
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
   calendarWeekStart String   @default("monday")
   webhookUrl        String?
   createdAt         DateTime @default(now())
@@ -201,14 +211,21 @@ model PipelineItem {
   publishedAt DateTime?
 }
 
+// Mirrors invoices Stripe has actually issued. Rows are written only by the
+// Stripe webhook, so an invoice existing here means money genuinely moved —
+// nothing in the app may mint one directly.
 model Invoice {
-  id        String   @id @default(cuid())
-  accountId String
-  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  number    String   @unique
-  total     Float
-  status    String   @default("paid")
-  createdAt DateTime @default(now())
+  id               String   @id @default(cuid())
+  accountId        String
+  account          Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  number           String   @unique
+  total            Float
+  currency         String   @default("usd")
+  status           String   @default("paid") // paid|open|void|uncollectible
+  stripeInvoiceId  String?  @unique
+  hostedInvoiceUrl String?
+  invoicePdfUrl    String?
+  createdAt        DateTime @default(now())
 }
 
 model Notification {

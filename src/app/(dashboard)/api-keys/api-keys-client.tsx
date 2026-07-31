@@ -69,7 +69,7 @@ export function ApiKeysClient({
   baseUrl: string;
   plan: { id: string; name: string; ffmpegMinutes: number; uploads: number };
   keys: KeyRow[];
-  usage: { apiCalls: number; ffmpegUsed: number; ffmpegRequests: number };
+  usage: { apiCalls: number; uploadsUsed: number; ffmpegUsed: number; ffmpegRequests: number };
 }) {
   const router = useRouter();
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -102,6 +102,7 @@ export function ApiKeysClient({
   }
 
   const timeSavedMin = usage.apiCalls * 5;
+  const uploadsLeft = Math.max(0, plan.uploads - usage.uploadsUsed);
 
   return (
     <div className="space-y-6">
@@ -199,9 +200,19 @@ export function ApiKeysClient({
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Current usage</p>
-            <p className="mt-1 text-3xl font-extrabold text-slate-900 dark:text-white">{usage.apiCalls}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">API calls made this cycle</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Uploads used</p>
+            <p className="mt-1 text-3xl font-extrabold text-slate-900 dark:text-white">
+              {usage.uploadsUsed.toLocaleString()}
+              <span className="text-lg font-bold text-slate-400"> / {plan.uploads.toLocaleString()}</span>
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {uploadsLeft > 0 ? `${uploadsLeft.toLocaleString()} left this cycle` : "Quota reached — upgrade to continue"}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Monthly quota</p>
+            <p className="mt-1 text-3xl font-extrabold text-slate-900 dark:text-white">{plan.uploads.toLocaleString()}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">uploads / month on {plan.name}</p>
           </div>
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Time saved</p>
@@ -210,11 +221,22 @@ export function ApiKeysClient({
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400">Compared to manual posting</p>
           </div>
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Monthly quota</p>
-            <p className="mt-1 text-3xl font-extrabold text-slate-900 dark:text-white">{plan.uploads}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">uploads / month on {plan.name}</p>
+        </div>
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span>Upload Quota Usage</span>
+            <span>{usage.uploadsUsed.toLocaleString()} / {plan.uploads.toLocaleString()} uploads</span>
           </div>
+          <div className="mt-1 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${uploadsLeft > 0 ? "bg-emerald-500" : "bg-red-500"}`}
+              style={{ width: `${Math.min(100, (usage.uploadsUsed / plan.uploads) * 100)}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-slate-400">
+            Counts every published, scheduled or queued post this cycle — from the API and the dashboard alike.
+            Drafts don&apos;t count. {usage.apiCalls.toLocaleString()} of these came through the API.
+          </p>
         </div>
       </section>
 
