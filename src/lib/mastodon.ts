@@ -10,7 +10,7 @@
 
 import { StoredFile, readStoredFile } from "./upload";
 import { PostType } from "./platforms";
-import { safeFetch, BlockedUrlError } from "./safe-fetch";
+import { fetchUserHost } from "./safe-fetch";
 import { normalizeExternalBaseUrl } from "./base-url";
 
 export const normalizeInstanceUrl = (raw: string) =>
@@ -37,24 +37,20 @@ async function mastoFetch(
   path: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  try {
-    return await safeFetch(`${instance}${path}`, {
-      ...init,
-      headers: { ...(init.headers ?? {}), authorization: `Bearer ${token}` },
-    });
-  } catch (err) {
-    if (err instanceof BlockedUrlError) {
-      throw new Error(`Can't reach that Mastodon instance — ${err.message}`);
-    }
-    throw err;
-  }
+  return fetchUserHost(
+    `${instance}${path}`,
+    { ...init, headers: { ...(init.headers ?? {}), authorization: `Bearer ${token}` } },
+    "Mastodon instance"
+  );
 }
 
 export async function fetchInstanceLimits(instance: string): Promise<MastodonLimits> {
   try {
-    const res = await safeFetch(`${instance}/api/v2/instance`, {
-      headers: { accept: "application/json" },
-    });
+    const res = await fetchUserHost(
+      `${instance}/api/v2/instance`,
+      { headers: { accept: "application/json" } },
+      "Mastodon instance"
+    );
     if (!res.ok) return DEFAULT_LIMITS;
     const d = await res.json();
     const statuses = d.configuration?.statuses ?? {};

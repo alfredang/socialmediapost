@@ -112,3 +112,23 @@ export async function safeFetch(rawUrl: string, init: RequestInit = {}): Promise
   }
   throw new BlockedUrlError(`Too many redirects (more than ${MAX_REDIRECTS}).`);
 }
+
+// safeFetch for a host the USER typed (a WordPress site, a Mastodon or Listmonk
+// install), with BlockedUrlError turned into a message naming the thing they
+// entered. Every such adapter should call this rather than fetch or safeFetch
+// directly — it is the single place the SSRF guard is applied, so forgetting it
+// is a visible omission rather than a silent hole.
+export async function fetchUserHost(
+  url: string,
+  init: RequestInit,
+  label: string
+): Promise<Response> {
+  try {
+    return await safeFetch(url, init);
+  } catch (err) {
+    if (err instanceof BlockedUrlError) {
+      throw new Error(`Can't reach that ${label} — ${err.message}`);
+    }
+    throw err;
+  }
+}

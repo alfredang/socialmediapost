@@ -9,6 +9,8 @@
 // Shapes here come from Hashnode's own published schema
 // (github.com/Hashnode/gql-skill), not from prose docs.
 
+import { extractHashtags } from "./platforms";
+
 const GQL = "https://gql.hashnode.com";
 
 // PublishPostInput allows up to 15 tags.
@@ -97,14 +99,11 @@ export async function validateHashnode(rawToken: string): Promise<{
   return { username: data.me.username, publicationId: pub.id, publicationTitle: pub.title };
 }
 
-// PublishPostTagInput is { slug: String!, name: String }.
-// Requires a word boundary before the '#', so a URL fragment doesn't become a
-// tag — same rule as devtoTags and the Bluesky facet detector.
+// PublishPostTagInput is { slug: String!, name: String }. The hashtag rule
+// itself lives in platforms.ts so it stays identical across adapters.
 function hashnodeTags(text: string): { slug: string; name: string }[] {
-  const found = [...text.matchAll(/(?:^|\s)#([\p{L}\p{N}_]+)/gu)];
   const seen = new Map<string, string>();
-  for (const match of found) {
-    const name = match[1];
+  for (const name of extractHashtags(text)) {
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     if (slug && !seen.has(slug)) seen.set(slug, name);
     if (seen.size >= MAX_TAGS) break;

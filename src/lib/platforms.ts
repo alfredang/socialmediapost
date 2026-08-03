@@ -52,8 +52,12 @@ export const PLATFORMS: PlatformDef[] = [
   { id: "listmonk", name: "Listmonk", color: "#0055D4", emoji: "📧", supports: ["text"], titleMax: 200, bodyMax: 100000, photosMax: 0, videoMaxSeconds: 0, firstComment: false, hashtagStyle: "none", titleRole: "titled", notes: "Email campaign to subscriber list" },
 ];
 
-export const PLATFORM_MAP: Record<string, PlatformDef> = Object.fromEntries(
-  PLATFORMS.map((p) => [p.id, p])
+// Null prototype — indexed by caller- and DB-supplied platform ids, so an
+// inherited name like "constructor" must miss rather than return a truthy
+// non-PlatformDef. Object.fromEntries yields a normal object, hence the copy.
+export const PLATFORM_MAP: Record<string, PlatformDef> = Object.assign(
+  Object.create(null),
+  Object.fromEntries(PLATFORMS.map((p) => [p.id, p]))
 );
 
 // ── Connectable platforms ────────────────────────────────────────────────────
@@ -92,9 +96,9 @@ export const CREDENTIAL_PLATFORMS = [
 ] as const;
 export const CREDENTIAL_PLATFORM_SET: ReadonlySet<string> = new Set(CREDENTIAL_PLATFORMS);
 
-export type ConnectablePlatform =
-  | (typeof OAUTH_PLATFORMS)[number]
-  | (typeof CREDENTIAL_PLATFORMS)[number];
+export type CredentialPlatform = (typeof CREDENTIAL_PLATFORMS)[number];
+
+export type ConnectablePlatform = (typeof OAUTH_PLATFORMS)[number] | CredentialPlatform;
 
 export const CONNECTABLE_PLATFORM_SET: ReadonlySet<string> = new Set<string>([
   ...OAUTH_PLATFORMS,
@@ -174,6 +178,26 @@ export function platformsForType(type: PostType): PlatformDef[] {
   return PLATFORMS.filter((p) => p.supports.includes(type));
 }
 
+// ── Hashtags ─────────────────────────────────────────────────────────────────
+// One definition of "what is a hashtag", used by adaptContent and by every
+// adapter that turns hashtags into platform tag metadata.
+//
+// The leading (^|\s) is the whole point: matching a bare '#' anywhere treats a
+// URL fragment as a tag, so "docs#install" yields "install" — which published
+// junk tags on Dev.to/Hashnode and, worse, let the strip below cut "#install"
+// out of the middle of a link.
+const HASHTAG_RE = /(^|\s)#([\p{L}\p{N}_]+)/gu;
+
+/** Hashtag names the author actually wrote, without the leading '#'. */
+export function extractHashtags(text: string): string[] {
+  return [...text.matchAll(HASHTAG_RE)].map((m) => m[2]);
+}
+
+/** Removes those same hashtags (and the space before them) — never touches a URL. */
+export function stripHashtags(text: string): string {
+  return text.replace(HASHTAG_RE, "").trim();
+}
+
 // Grapheme-aware length so emoji/CJK count like the real platforms do.
 export function graphemeLength(text: string): number {
   if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
@@ -214,12 +238,12 @@ export function adaptContent(platformId: string, input: AdaptInput): AdaptedCont
   let firstComment = input.firstComment ?? "";
 
   // Hashtag handling
-  const hashtags = (title + " " + body).match(/#[\p{L}\p{N}_]+/gu) ?? [];
+  const hashtags = extractHashtags(`${title} ${body}`);
   if (def.hashtagStyle === "first-comment" && def.firstComment && hashtags.length > 0 && !firstComment) {
     // Move hashtags out of the caption into the first comment (Instagram convention)
-    firstComment = hashtags.join(" ");
-    title = title.replace(/#[\p{L}\p{N}_]+\s*/gu, "").trim();
-    body = body.replace(/#[\p{L}\p{N}_]+\s*/gu, "").trim();
+    firstComment = hashtags.map((t) => `#${t}`).join(" ");
+    title = stripHashtags(title);
+    body = stripHashtags(body);
     warnings.push("Hashtags moved to first comment");
   }
   if (def.hashtagStyle === "none" && hashtags.length > 0) {

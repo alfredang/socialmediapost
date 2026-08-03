@@ -7,7 +7,7 @@
 // safeFetch — a Listmonk install is very often on a private network, and this
 // server must not be usable as a probe for one.
 
-import { safeFetch, BlockedUrlError } from "./safe-fetch";
+import { fetchUserHost } from "./safe-fetch";
 import { normalizeExternalBaseUrl } from "./base-url";
 
 export const normalizeListmonkUrl = (raw: string) =>
@@ -23,17 +23,14 @@ async function lmFetch(
   path: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  try {
-    return await safeFetch(`${base}/api${path}`, {
+  return fetchUserHost(
+    `${base}/api${path}`,
+    {
       ...init,
       headers: { ...(init.headers ?? {}), accept: "application/json", authorization: auth },
-    });
-  } catch (err) {
-    if (err instanceof BlockedUrlError) {
-      throw new Error(`Can't reach that Listmonk install — ${err.message}`);
-    }
-    throw err;
-  }
+    },
+    "Listmonk install"
+  );
 }
 
 // Validate by reading the lists and confirming the target one exists — a bad

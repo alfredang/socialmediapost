@@ -6,6 +6,8 @@
 // Dev.to is a "titled" platform: the composer's title and body stay separate,
 // and the body is posted as Markdown.
 
+import { extractHashtags } from "./platforms";
+
 const API = "https://dev.to/api";
 
 // Dev.to caps an article at 4 tags.
@@ -45,14 +47,12 @@ export async function validateDevto(
 
 // On Dev.to tags are metadata, not inline text — they must be lowercase
 // alphanumeric, and anything else is rejected. Derived from the hashtags the
-// author already wrote rather than asking for them twice.
-// The leading (^|\s) matters: without it a URL fragment like
-// "example.com/page#section" turns into a bogus "section" tag.
+// author already wrote rather than asking for them twice; extractHashtags owns
+// the "what counts as a hashtag" rule so it can't drift per platform again.
 export function devtoTags(text: string): string[] {
-  const found = [...text.matchAll(/(?:^|\s)#([\p{L}\p{N}_]+)/gu)];
   const tags = new Set<string>();
-  for (const match of found) {
-    const slug = match[1].toLowerCase().replace(/[^a-z0-9]/g, "");
+  for (const name of extractHashtags(text)) {
+    const slug = name.toLowerCase().replace(/[^a-z0-9]/g, "");
     if (slug) tags.add(slug);
     if (tags.size >= MAX_TAGS) break;
   }

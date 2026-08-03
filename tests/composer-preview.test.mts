@@ -34,6 +34,31 @@ section("text mode ignores any file selection (the reported bug)");
   });
 }
 
+section("url mode ignores a stale file selection");
+{
+  // Same defect as the text case above, in the neighbouring mode: pick files,
+  // then switch to URL. The file picker is no longer on screen, so those files
+  // are not part of this post.
+  const p = st({ method: "url", files: [img(), img("b.jpg")], mediaUrls: "" });
+  check("stale files are not counted", () => assert.strictEqual(p.hasMedia, false));
+  check("summary doesn't claim attachments", () =>
+    assert.strictEqual(p.mediaSummary, "No media yet"));
+  check("no thumbnail from a stale file", () => assert.strictEqual(p.thumbnailIndex, null));
+  check("submit is blocked, not silently sending them", () =>
+    assert.strictEqual(p.mediaMissing, true));
+
+  check("a stale video file doesn't drive the post type", () =>
+    assert.strictEqual(
+      st({ method: "url", files: [vid()], mediaUrls: "https://a.com/p.jpg" }).postType,
+      "photos"
+    ));
+  check("real URLs still count in url mode", () =>
+    assert.strictEqual(
+      st({ method: "url", files: [img()], mediaUrls: "https://a.com/p.jpg" }).hasMedia,
+      true
+    ));
+}
+
 section("summary never claims media that isn't there");
 {
   check("no files → 'No media yet', not 'Attached File'", () =>
@@ -125,6 +150,10 @@ section("invariants that must hold for every reachable state");
           if (method === "text") {
             assert.strictEqual(p.hasMedia, false);
             assert.strictEqual(p.thumbnailIndex, null);
+          }
+          // Only file mode may derive anything from the file selection.
+          if (method !== "file") {
+            assert.strictEqual(p.thumbnailIndex, null, `${method} used a stale file`);
           }
           // A thumbnail may only point at a real image in the array.
           if (p.thumbnailIndex !== null) {
