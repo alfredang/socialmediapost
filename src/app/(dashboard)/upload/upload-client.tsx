@@ -9,6 +9,7 @@ import { MediaEditor, MediaValue, mediaValueToStored } from "@/components/MediaE
 import { CodeBlock } from "@/components/CodeBlock";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { PLATFORMS, PLATFORM_MAP, adaptContent, graphemeLength, PostType } from "@/lib/platforms";
+import { derivePreview } from "@/lib/composer-preview";
 
 interface ProfileOpt {
   id: string;
@@ -107,7 +108,9 @@ export function UploadClient({ profiles }: { profiles: ProfileOpt[] }) {
     [profile]
   );
 
-  const postType: PostType = method === "text" ? "text" : files.some((f) => f.type.startsWith("video")) || (method === "url" && /\.(mp4|mov|webm)/i.test(mediaUrls)) ? "video" : method === "file" || method === "url" ? (files.length || mediaUrls ? "photos" : "video") : "text";
+  // Everything the side panel shows comes from here — see composer-preview.ts.
+  const preview = derivePreview({ method, files, mediaUrls });
+  const postType: PostType = preview.postType;
 
   const eligiblePlatforms = PLATFORMS.filter((p) => p.supports.includes(postType));
 
@@ -184,7 +187,12 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
     if (method === "url") {
       form.set("mediaUrls", JSON.stringify(mediaUrls.split("\n").map((s) => s.trim()).filter(Boolean)));
     }
-    for (const f of files) form.append("media", f);
+    // A text post carries no media. `files` is kept in state so switching back
+    // to file mode restores the selection, but sending it here would upload
+    // files the composer isn't showing and the user didn't intend to attach.
+    if (method !== "text") {
+      for (const f of files) form.append("media", f);
+    }
 
     // Per-platform media overrides, for selected platforms only.
     const perPlatform = Object.fromEntries(
@@ -224,13 +232,25 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
     }
   }
 
-  const typeLabel = postType === "video" ? "Video" : postType === "photos" ? "Photos" : "Post";
+  // Preview thumbnail for the first selected image. Memoised and revoked:
+  // calling createObjectURL inline in JSX mints a new blob handle on every
+  // render and never releases them. Text posts get no thumbnail at all — the
+  // selection survives in `files` for a switch back, but it isn't this post.
+  const thumbnailIndex = preview.thumbnailIndex;
+  const previewUrl = useMemo(() => {
+    if (thumbnailIndex === null) return null;
+    return URL.createObjectURL(files[thumbnailIndex]);
+  }, [files, thumbnailIndex]);
+
+  useEffect(() => {
+    if (!previewUrl) return;
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
+  const typeLabel = preview.typeLabel;
   // Video/photo posts must actually carry media — a submit without it would
   // only fail later at publish time.
-  const mediaMissing =
-    postType !== "text" &&
-    files.length === 0 &&
-    !(method === "url" && mediaUrls.trim().length > 0);
+  const mediaMissing = preview.mediaMissing;
   const scheduleBlocked =
     submission === "schedule" &&
     (!scheduledAt || isNaN(Date.parse(scheduledAt)) || Date.parse(scheduledAt) <= Date.now());
@@ -271,7 +291,7 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
               <p className="text-sm text-slate-500 dark:text-slate-400">Pick the profile, content source, and primary copy.</p>
             </div>
             <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs text-slate-500 dark:text-slate-400">
-              {files.length || mediaUrls || method === "text" ? "Ready" : "Media pending"}
+              {preview.ready ? "Ready" : "Media pending"}
             </span>
           </div>
 
@@ -688,7 +708,7 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
           </div>
           <p className="mt-2 text-xs text-slate-400">
             {submission === "now" ? "Post immediately" : submission === "queue" ? "Queued to next slot" : submission === "draft" ? "Draft" : scheduledAt ? `Scheduled ${new Date(scheduledAt).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "Scheduled"}
-            {" · "}{method === "text" ? "Text-only" : files.length ? `${files.length} attached file${files.length > 1 ? "s" : ""}` : "Attached File"}
+            {" · "}{preview.mediaSummary}
           </p>
           <div className="mt-3 border-t border-slate-100 dark:border-slate-800 pt-3">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Title</p>
@@ -696,19 +716,23 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
               {title || <span className="italic text-slate-400">No title set</span>}
             </p>
           </div>
-          <div className="mt-3 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-6 text-center">
-            {files.length && files[0].type.startsWith("image") ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={URL.createObjectURL(files[0])} alt="Preview" className="mx-auto max-h-40 rounded-lg object-cover" />
-            ) : (
-              <>
-                <svg className="mx-auto text-slate-300 dark:text-slate-600" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" />
-                </svg>
-                <p className="mt-2 text-xs text-slate-400">Add media to see preview</p>
-              </>
-            )}
-          </div>
+          {/* Media preview — omitted entirely for a text-only post, which has
+              no media to show and no dropzone to prompt for. */}
+          {preview.showMediaBox && (
+            <div className="mt-3 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-6 text-center">
+              {previewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={previewUrl} alt="Preview" className="mx-auto max-h-40 rounded-lg object-cover" />
+              ) : (
+                <>
+                  <svg className="mx-auto text-slate-300 dark:text-slate-600" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" />
+                  </svg>
+                  <p className="mt-2 text-xs text-slate-400">Add media to see preview</p>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Per-platform adaptation preview */}
           {selected.length > 0 && (title || description) && (
