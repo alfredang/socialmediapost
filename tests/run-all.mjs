@@ -28,6 +28,7 @@ const FILES = [
   "webhook.test.mjs",
   "sdk.test.mjs",
   "composer-preview.test.mts",
+  "platform-adapters.test.mts",
 ];
 
 // .mts files import app TypeScript directly, so they run through tsx; plain

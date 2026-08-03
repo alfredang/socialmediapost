@@ -40,6 +40,11 @@ Every OAuth platform redirects back to **`{PUBLIC_BASE_URL}/api/auth/<platform>/
 | Slack | — (per-user webhook URL) | — | — |
 | Telegram | — (per-user bot token + chat id) | @BotFather | — |
 | Bluesky | — (per-user handle + app password) | — | — |
+| Dev.to | — (per-user API key) | dev.to/settings/extensions | — |
+| Hashnode | — (per-user access token) | hashnode.com/settings/developer | — |
+| WordPress | — (per-user site + application password) | — | — |
+| Mastodon | — (per-user instance + access token) | {instance}/settings/applications | — |
+| Listmonk | — (per-user URL + API user/token) | your Listmonk admin | — |
 
 The Meta platforms (Facebook, Instagram, Threads) also reference two shared
 data-callback endpoints this app already serves:
@@ -227,6 +232,61 @@ stored.
   Install **ffprobe** (or set `FFPROBE_PATH`) to have the aspect ratio and
   duration read from the file — without it video still publishes, but clients
   render it at a default aspect ratio.
+
+### Dev.to
+- **dev.to → Settings → Extensions → DEV Community API Keys** → generate a key
+  and paste it. Connecting reads your own user to verify it; it publishes
+  nothing.
+- Articles post as **published** Markdown. Up to **4 tags**, derived from the
+  hashtags in your copy (lowercased, non-alphanumerics stripped, as Dev.to
+  requires).
+
+### Hashnode
+- **hashnode.com/settings/developer → Generate New Token** → paste it. The
+  publication is resolved automatically at connect time; accounts with more than
+  one blog use the first.
+- ⚠️ **Requires Hashnode Pro.** Every write mutation — `publishPost` included —
+  is gated behind an active Pro plan on the publication. A free account
+  connects successfully and is then refused at publish time with
+  *"Publication does not have an active Pro plan."* There is no free API
+  publishing path.
+- Up to 15 tags, derived from hashtags in the copy.
+
+### WordPress
+- Works on self-hosted **WordPress 5.6+** and WordPress.com sites with the REST
+  API enabled. No plugin needed.
+- **Users → Profile → Application Passwords** → add one → paste it with your
+  site URL and username. Use an application password, never your login password:
+  it can be revoked on its own.
+- Posts publish immediately as HTML (the composer's plain text is escaped and
+  paragraph-wrapped — never interpreted as markup). Photos and video upload to
+  the media library and embed in the post; the first image also becomes the
+  featured image.
+- The site URL is user-supplied and fetched server-side, so every request goes
+  through the SSRF guard — private and link-local addresses are refused.
+
+### Mastodon
+- On your instance: **Preferences → Development → New application**. Tick
+  **`write:statuses`** and **`write:media`**, save, then copy **"Your access
+  token"** (not the client key/secret).
+- Paste it with your instance URL (whatever follows the `@` in your full handle).
+- Limits are **per instance**, so they're read from `/api/v2/instance` at connect
+  time and cached — a server with a 5000-character limit is respected rather
+  than being clipped to mastodon.social's 500.
+- Text, images and video. Attachments upload as bytes; video is polled until the
+  instance finishes transcoding. Posts carry an idempotency key so a retry can't
+  double-post.
+
+### Listmonk
+- Self-hosted newsletter, not a social network: **a post becomes a campaign**,
+  created and then immediately set to `running`, which is what sends it. The
+  title is the subject and the body is Markdown.
+- **Admin → Users → API users** → create one → paste the user and token with
+  your Listmonk URL and the numeric **list ID** (see Lists in the admin UI).
+- The list ID is verified against the real list at connect time, so a wrong id
+  fails immediately instead of producing a campaign that goes nowhere.
+- Your install must be reachable from this server. Private/LAN addresses are
+  refused by the SSRF guard — if Listmonk is internal-only, this can't reach it.
 
 ### Telegram
 - Create a bot with **@BotFather** in Telegram → copy the **bot token**.

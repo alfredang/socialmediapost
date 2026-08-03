@@ -18,7 +18,7 @@
 - **AI copy assistant** — captions + hashtags (uses `ANTHROPIC_API_KEY` if set, offline heuristic otherwise)
 - **Dark/light theme**, sidebar dashboard, notifications, team management, simulated billing with invoices
 
-> **What's real:** ten of the 22 networks publish for real — Instagram, Facebook, LinkedIn, TikTok, YouTube and Threads over OAuth, plus Discord, Slack, Telegram and Bluesky via a pasted credential. The remaining registry entries carry constraints/adaptation rules only and fail with a clear "integration is not yet available" rather than pretending to post. Analytics are collected from the Instagram, Facebook, TikTok and LinkedIn APIs — nothing is generated, and a metric a platform won't expose is stored as `NULL`, not `0`. Billing is still **simulated** (plan switches mint invoices without charging anything).
+> **What's real:** fifteen of the 22 networks publish for real — Instagram, Facebook, LinkedIn, TikTok, YouTube and Threads over OAuth, plus Discord, Slack, Telegram, Bluesky, Dev.to, Hashnode, WordPress, Mastodon and Listmonk via a pasted credential. Every connected platform authenticates with a credential you can revoke on its own; the one platform-imposed caveat is surfaced rather than hidden — Hashnode's API requires a paid Pro plan on the publication. The remaining registry entries carry constraints/adaptation rules only and fail with a clear "integration is not yet available" rather than pretending to post. Analytics are collected from the Instagram, Facebook, TikTok and LinkedIn APIs — nothing is generated, and a metric a platform won't expose is stored as `NULL`, not `0`. Billing is still **simulated** (plan switches mint invoices without charging anything).
 
 ## Quick start
 
