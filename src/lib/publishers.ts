@@ -15,6 +15,11 @@ import { publishToYouTube } from "./youtube";
 import { publishToTelegram } from "./telegram";
 import { publishToThreads } from "./threads";
 import { publishToBluesky } from "./bluesky";
+import { publishToDevto } from "./devto";
+import { publishToHashnode } from "./hashnode";
+import { publishToWordPress } from "./wordpress";
+import { publishToMastodon } from "./mastodon";
+import { publishToListmonk } from "./listmonk";
 
 // Builds a public URL a platform's servers can fetch a stored media file from.
 // Media-URL stubs (mime "url") are already public — pass them through.
@@ -135,6 +140,59 @@ const PUBLISHERS = {
       media: ctx.media,
       text: ctx.caption,
     }),
+  // Blog platforms — all titleRole "titled", so the title and body stay apart
+  // rather than being folded into one caption.
+  devto: (ctx) =>
+    publishToDevto({
+      apiKey: ctx.account.accessToken!,
+      title: ctx.title,
+      bodyMarkdown: ctx.body,
+    }),
+  hashnode: (ctx) =>
+    publishToHashnode({
+      token: ctx.account.accessToken!,
+      publicationId: JSON.parse(ctx.account.meta || "{}").publicationId,
+      title: ctx.title,
+      contentMarkdown: ctx.body,
+    }),
+  wordpress: (ctx) => {
+    // meta carries the normalised site URL and username; accessToken is the
+    // application password.
+    const meta = JSON.parse(ctx.account.meta || "{}") as { site?: string; username?: string };
+    return publishToWordPress({
+      site: meta.site ?? "",
+      username: meta.username ?? "",
+      appPassword: ctx.account.accessToken!,
+      type: ctx.type,
+      media: ctx.media,
+      title: ctx.title,
+      body: ctx.body,
+    });
+  },
+  // Self-hosted / federated platforms: the instance URL lives in meta, the
+  // secret in accessToken.
+  mastodon: (ctx) => {
+    const meta = JSON.parse(ctx.account.meta || "{}");
+    return publishToMastodon({
+      instance: meta.instance ?? "",
+      token: ctx.account.accessToken!,
+      type: ctx.type,
+      media: ctx.media,
+      text: ctx.caption,
+      limits: meta.limits,
+    });
+  },
+  listmonk: (ctx) => {
+    const meta = JSON.parse(ctx.account.meta || "{}");
+    return publishToListmonk({
+      base: meta.base ?? "",
+      apiUser: meta.apiUser ?? "",
+      token: ctx.account.accessToken!,
+      listId: Number(meta.listId),
+      subject: ctx.title,
+      body: ctx.body,
+    });
+  },
 } satisfies Record<ConnectablePlatform, PlatformPublisher>;
 
 export const REAL_PUBLISHERS: Record<string, PlatformPublisher> = PUBLISHERS;

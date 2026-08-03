@@ -7,6 +7,11 @@ import { validateDiscordWebhook } from "@/lib/discord";
 import { validateSlackWebhook } from "@/lib/slack";
 import { validateTelegram } from "@/lib/telegram";
 import { validateBluesky } from "@/lib/bluesky";
+import { validateDevto } from "@/lib/devto";
+import { validateHashnode } from "@/lib/hashnode";
+import { validateWordPress } from "@/lib/wordpress";
+import { validateMastodon } from "@/lib/mastodon";
+import { validateListmonk } from "@/lib/listmonk";
 
 // OAuth accounts are created via the real OAuth flows (/api/auth/<platform>).
 // Webhook/credential platforms (Discord, Slack, Telegram) are connected here via
@@ -18,6 +23,11 @@ import { validateBluesky } from "@/lib/bluesky";
 //   Discord/Slack: { profileId, platform, webhookUrl }
 //   Telegram:      { profileId, platform, botToken, chatId }
 //   Bluesky:       { profileId, platform, handle, appPassword }
+//   Dev.to:        { profileId, platform, apiKey }
+//   Hashnode:      { profileId, platform, token }
+//   WordPress:     { profileId, platform, siteUrl, username, appPassword }
+//   Mastodon:      { profileId, platform, instanceUrl, accessToken }
+//   Listmonk:      { profileId, platform, baseUrl, apiUser, apiToken, listId }
 export async function POST(req: NextRequest) {
   const auth = await requireSession();
   if (auth instanceof NextResponse) return auth;
@@ -62,6 +72,69 @@ export async function POST(req: NextRequest) {
         displayName: `@${info.handle}`,
         externalUserId: info.did,
         meta: null,
+      };
+    } else if (platform === "devto") {
+      const apiKey = String(body.apiKey ?? "").trim();
+      const info = await validateDevto(apiKey);
+      data = {
+        accessToken: apiKey,
+        handle: info.username,
+        displayName: info.name,
+        externalUserId: info.id,
+        meta: null,
+      };
+    } else if (platform === "hashnode") {
+      // The publication id is resolved at connect time and cached in meta —
+      // publishPost requires it and the composer has nowhere to ask for it.
+      const token = String(body.token ?? "").trim();
+      const info = await validateHashnode(token);
+      data = {
+        accessToken: token,
+        handle: info.username,
+        displayName: info.publicationTitle,
+        externalUserId: info.publicationId,
+        meta: JSON.stringify({ publicationId: info.publicationId }),
+      };
+    } else if (platform === "wordpress") {
+      // accessToken holds the application password; the site URL and username
+      // it authenticates against go in meta.
+      const appPassword = String(body.appPassword ?? "").trim();
+      const username = String(body.username ?? "").trim();
+      const info = await validateWordPress(String(body.siteUrl ?? ""), username, appPassword);
+      data = {
+        accessToken: appPassword,
+        handle: username,
+        displayName: `${info.displayName} (${new URL(info.site).host})`,
+        externalUserId: info.userId,
+        meta: JSON.stringify({ site: info.site, username }),
+      };
+    } else if (platform === "mastodon") {
+      // Per-instance limits are captured now so the publisher doesn't have to
+      // re-discover them on every post.
+      const accessToken = String(body.accessToken ?? "").trim();
+      const info = await validateMastodon(String(body.instanceUrl ?? ""), accessToken);
+      data = {
+        accessToken,
+        handle: info.acct,
+        displayName: `@${info.acct}@${new URL(info.instance).host}`,
+        externalUserId: info.userId,
+        meta: JSON.stringify({ instance: info.instance, limits: info.limits }),
+      };
+    } else if (platform === "listmonk") {
+      const apiToken = String(body.apiToken ?? "").trim();
+      const apiUser = String(body.apiUser ?? "").trim();
+      const info = await validateListmonk(
+        String(body.baseUrl ?? ""),
+        apiUser,
+        apiToken,
+        String(body.listId ?? "")
+      );
+      data = {
+        accessToken: apiToken,
+        handle: apiUser,
+        displayName: `${info.listName} (${new URL(info.base).host})`,
+        externalUserId: String(info.listId),
+        meta: JSON.stringify({ base: info.base, apiUser, listId: info.listId }),
       };
     } else {
       // telegram — bot token + channel/chat id

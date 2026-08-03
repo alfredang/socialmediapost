@@ -43,6 +43,7 @@ so the tests depend on nothing in the database and never touch real accounts.
 | `webhook.test.mjs` | SDK `parseWebhookEvent` — parses `post.completed`, rejects unknown/malformed (pure unit, no server) |
 | `sdk.test.mjs` | Node SDK live plumbing — authed reads + guard-rail paths return parsed API errors, never throw |
 | `composer-preview.test.mts` | Upload composer side panel — post type, thumbnail, summary line, submit gating (pure unit, no server) |
+| `platform-adapters.test.mts` | Credential-adapter pure logic — user-supplied base-URL normalisation, Dev.to tag derivation (pure unit, no server) |
 
 ## Posting (excluded from `npm test` — these publish for real)
 

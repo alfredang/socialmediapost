@@ -50,6 +50,82 @@ const CREDENTIAL_FIELDS: Record<string, CredField[]> = {
       hint: "In Bluesky: Settings → Privacy and security → App passwords → Add App Password. Use an app password, never your real one — you can revoke it any time without changing your login.",
     },
   ],
+  devto: [
+    {
+      key: "apiKey",
+      label: "Dev.to API key",
+      placeholder: "your DEV API key",
+      hint: "On dev.to: Settings → Extensions → DEV Community API Keys → generate a key and paste it here.",
+    },
+  ],
+  hashnode: [
+    {
+      key: "token",
+      label: "Hashnode personal access token",
+      placeholder: "your Hashnode PAT",
+      hint: "At hashnode.com/settings/developer → Generate New Token. Note: Hashnode requires an active Pro plan on your publication to publish through the API — a free account will connect fine but be refused at publish time.",
+    },
+  ],
+  wordpress: [
+    {
+      key: "siteUrl",
+      label: "Site URL",
+      placeholder: "https://yourblog.com",
+      hint: "Your WordPress site's address. Needs WordPress 5.6+ with the REST API enabled.",
+    },
+    {
+      key: "username",
+      label: "WordPress username",
+      placeholder: "yourname",
+      hint: "The username you log in to WordPress with.",
+    },
+    {
+      key: "appPassword",
+      label: "Application password",
+      placeholder: "xxxx xxxx xxxx xxxx xxxx xxxx",
+      hint: "In WordPress: Users → Profile → Application Passwords → add one. Use that, never your login password — it can be revoked on its own.",
+    },
+  ],
+  mastodon: [
+    {
+      key: "instanceUrl",
+      label: "Instance URL",
+      placeholder: "https://mastodon.social",
+      hint: "The Mastodon server your account is on — whatever comes after the @ in your full handle.",
+    },
+    {
+      key: "accessToken",
+      label: "Access token",
+      placeholder: "your access token",
+      hint: "On your instance: Preferences → Development → New application. Tick write:statuses and write:media, save, then copy \"Your access token\".",
+    },
+  ],
+  listmonk: [
+    {
+      key: "baseUrl",
+      label: "Listmonk URL",
+      placeholder: "https://listmonk.yourdomain.com",
+      hint: "Where your Listmonk install is reachable. It must be reachable from this server — a private/LAN address is refused.",
+    },
+    {
+      key: "apiUser",
+      label: "API user",
+      placeholder: "api-user",
+      hint: "In Listmonk: Admin → Users → API users → create one.",
+    },
+    {
+      key: "apiToken",
+      label: "API token",
+      placeholder: "the token shown on creation",
+      hint: "Shown once when the API user is created.",
+    },
+    {
+      key: "listId",
+      label: "List ID",
+      placeholder: "1",
+      hint: "The numeric ID of the subscriber list to send to — see Lists in the admin UI. Publishing creates a campaign and starts it immediately.",
+    },
+  ],
   telegram: [
     {
       key: "botToken",

@@ -79,7 +79,17 @@ export const OAUTH_PLATFORM_SET: ReadonlySet<string> = new Set(OAUTH_PLATFORMS);
 // of a "Connect" redirect, and /api/internal/social-accounts validates + stores
 // them. These need a session, so they are NOT offered on the whitelabel
 // /connect page — an end user there can only run OAuth.
-export const CREDENTIAL_PLATFORMS = ["discord", "slack", "telegram", "bluesky"] as const;
+export const CREDENTIAL_PLATFORMS = [
+  "discord",
+  "slack",
+  "telegram",
+  "bluesky",
+  "devto",
+  "hashnode",
+  "wordpress",
+  "mastodon",
+  "listmonk",
+] as const;
 export const CREDENTIAL_PLATFORM_SET: ReadonlySet<string> = new Set(CREDENTIAL_PLATFORMS);
 
 export type ConnectablePlatform =
