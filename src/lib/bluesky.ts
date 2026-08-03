@@ -42,10 +42,17 @@ interface Session {
   did: string;
   handle: string;
   accessJwt: string;
-  // The account's REAL PDS host. bsky.social is only an entryway that proxies
-  // to it — fine for ordinary XRPC calls, but service-auth tokens must name the
-  // actual PDS or the video service rejects them with a 401.
-  pdsHost: string;
+  // The DID document, when createSession inlined it. Only the video path needs
+  // the PDS host, so it is NOT resolved here: connecting an account and posting
+  // text or photos must not depend on the PLC directory being reachable.
+  didDoc: unknown;
+}
+
+// The account's REAL PDS host. bsky.social is only an entryway that proxies to
+// it — fine for ordinary XRPC calls, but service-auth tokens must name the
+// actual PDS or the video service rejects them with a 401. Resolved on demand.
+async function pdsHostFor(session: Session): Promise<string> {
+  return pdsHostFromDidDoc(session.didDoc) ?? (await resolvePdsHost(session.did));
 }
 
 // Pulls the PDS service endpoint out of a DID document.
@@ -113,11 +120,13 @@ async function createSession(handle: string, appPassword: string): Promise<Sessi
   if (!res.ok || !data.accessJwt) {
     throw new Error(data.message || `Bluesky sign-in failed (${res.status})`);
   }
-  const did = String(data.did);
-  // createSession normally inlines the DID document, saving a round trip to the
-  // PLC directory.
-  const pdsHost = pdsHostFromDidDoc(data.didDoc) ?? (await resolvePdsHost(did));
-  return { did, handle: String(data.handle), accessJwt: String(data.accessJwt), pdsHost };
+  return {
+    did: String(data.did),
+    handle: String(data.handle),
+    accessJwt: String(data.accessJwt),
+    // Kept as-is; pdsHostFor() reads it only when a video actually needs it.
+    didDoc: data.didDoc,
+  };
 }
 
 // Validate at connect time by signing in — the only way to prove an app
@@ -327,7 +336,7 @@ async function uploadVideo(
   await assertCanUploadVideo(session.accessJwt);
   const token = await getServiceAuth(
     session.accessJwt,
-    `did:web:${session.pdsHost}`,
+    `did:web:${await pdsHostFor(session)}`,
     "com.atproto.repo.uploadBlob"
   );
 

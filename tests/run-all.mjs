@@ -31,14 +31,18 @@ const FILES = [
   "platform-adapters.test.mts",
 ];
 
-// .mts files import app TypeScript directly, so they run through tsx; plain
-// .mjs runs on node as before.
+// .mts files import app TypeScript directly, so node loads them through tsx;
+// plain .mjs runs on node as before. Both spawn node itself with NO shell:
+// under `shell: true` arguments are concatenated rather than escaped (Node
+// DEP0190), so any path containing a space — a "Program Files" install, or a
+// checkout under "My Documents" — silently fails to launch.
 function run(file) {
   return new Promise((resolve) => {
-    const [cmd, args] = file.endsWith(".mts")
-      ? ["npx", ["tsx", path.join(dir, file), baseUrl]]
-      : [process.execPath, [path.join(dir, file), baseUrl]];
-    const child = spawn(cmd, args, { stdio: "inherit", shell: process.platform === "win32" });
+    const target = path.join(dir, file);
+    const args = file.endsWith(".mts")
+      ? ["--import", "tsx", target, baseUrl]
+      : [target, baseUrl];
+    const child = spawn(process.execPath, args, { stdio: "inherit" });
     child.on("exit", (code) => resolve(code ?? 1));
   });
 }
