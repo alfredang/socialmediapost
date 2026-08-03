@@ -27,11 +27,17 @@ const FILES = [
   "dashboard-session.test.mjs",
   "webhook.test.mjs",
   "sdk.test.mjs",
+  "composer-preview.test.mts",
 ];
 
+// .mts files import app TypeScript directly, so they run through tsx; plain
+// .mjs runs on node as before.
 function run(file) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(dir, file), baseUrl], { stdio: "inherit" });
+    const [cmd, args] = file.endsWith(".mts")
+      ? ["npx", ["tsx", path.join(dir, file), baseUrl]]
+      : [process.execPath, [path.join(dir, file), baseUrl]];
+    const child = spawn(cmd, args, { stdio: "inherit", shell: process.platform === "win32" });
     child.on("exit", (code) => resolve(code ?? 1));
   });
 }

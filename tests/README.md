@@ -2,6 +2,10 @@
 
 Black-box functional tests. Plain Node (`node:assert`, global `fetch`) — no framework.
 
+A few files are **pure unit tests** that need no server (`webhook`,
+`composer-preview`). `.mts` files import app TypeScript directly and are run
+through `tsx` by `run-all.mjs`; everything else runs on plain `node`.
+
 ## Run
 
 Start the app first, then point the suite at it:
@@ -38,6 +42,7 @@ so the tests depend on nothing in the database and never touch real accounts.
 | `dashboard-session.test.mjs` | pipeline persists across a full reload, all dashboard pages render, deleted-account redirect |
 | `webhook.test.mjs` | SDK `parseWebhookEvent` — parses `post.completed`, rejects unknown/malformed (pure unit, no server) |
 | `sdk.test.mjs` | Node SDK live plumbing — authed reads + guard-rail paths return parsed API errors, never throw |
+| `composer-preview.test.mts` | Upload composer side panel — post type, thumbnail, summary line, submit gating (pure unit, no server) |
 
 ## Posting (excluded from `npm test` — these publish for real)
 
