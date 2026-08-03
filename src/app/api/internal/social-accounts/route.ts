@@ -2,22 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/internal-auth";
 import { fetchPageDirect } from "@/lib/facebook";
-import { CREDENTIAL_PLATFORM_SET } from "@/lib/platforms";
-import { validateDiscordWebhook } from "@/lib/discord";
-import { validateSlackWebhook } from "@/lib/slack";
-import { validateTelegram } from "@/lib/telegram";
-import { validateBluesky } from "@/lib/bluesky";
-import { validateDevto } from "@/lib/devto";
-import { validateHashnode } from "@/lib/hashnode";
-import { validateWordPress } from "@/lib/wordpress";
-import { validateMastodon } from "@/lib/mastodon";
-import { validateListmonk } from "@/lib/listmonk";
+import { CREDENTIAL_VALIDATORS } from "@/lib/credential-connect";
 
 // OAuth accounts are created via the real OAuth flows (/api/auth/<platform>).
-// Webhook/credential platforms (Discord, Slack, Telegram) are connected here via
-// POST: the pasted credential is validated against the platform before it's
-// stored — no unverified credential is ever saved. `accessToken` holds the
-// secret (webhook URL / bot token); `meta` holds any extras (chat/channel id).
+// Credential platforms are connected here via POST: the pasted credential is
+// validated against the platform before it's stored — no unverified credential
+// is ever saved. `accessToken` holds the secret (webhook URL / token / app
+// password); `meta` holds any extras (chat id, instance URL, list id).
+//
+// The per-platform logic lives in lib/credential-connect.ts, which is
+// exhaustive against CREDENTIAL_PLATFORMS at compile time.
 
 // POST — connect a credential-based platform.
 //   Discord/Slack: { profileId, platform, webhookUrl }
@@ -35,7 +29,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const platform = String(body.platform ?? "").toLowerCase();
 
-  if (!CREDENTIAL_PLATFORM_SET.has(platform)) {
+  // The registry is the membership test: a platform with no validator is, by
+  // definition, not credential-connected.
+  const validate = CREDENTIAL_VALIDATORS[platform];
+  if (!validate) {
     return NextResponse.json(
       { success: false, error: "That platform isn't connected with a webhook/credential" },
       { status: 400 }
@@ -45,115 +42,16 @@ export async function POST(req: NextRequest) {
   if (!profile) return NextResponse.json({ success: false, error: "Profile not found" }, { status: 404 });
 
   try {
-    let data: { accessToken: string; handle: string; displayName: string; externalUserId: string; meta: string | null };
-    if (platform === "discord") {
-      const webhookUrl = String(body.webhookUrl ?? "").trim();
-      const info = await validateDiscordWebhook(webhookUrl);
-      data = {
-        accessToken: webhookUrl,
-        handle: info.name,
-        displayName: info.name,
-        externalUserId: info.id,
-        meta: JSON.stringify({ channelId: info.channelId, guildId: info.guildId }),
-      };
-    } else if (platform === "slack") {
-      const webhookUrl = String(body.webhookUrl ?? "").trim();
-      await validateSlackWebhook(webhookUrl);
-      const serviceId = webhookUrl.split("/services/")[1]?.split("/")[0] ?? "webhook";
-      data = { accessToken: webhookUrl, handle: "Slack", displayName: "Slack channel", externalUserId: serviceId, meta: null };
-    } else if (platform === "bluesky") {
-      // handle + app password; the app password itself is the stored credential
-      // (a fresh session is minted per publish).
-      const appPassword = String(body.appPassword ?? "").trim();
-      const info = await validateBluesky(String(body.handle ?? ""), appPassword);
-      data = {
-        accessToken: appPassword,
-        handle: info.handle,
-        displayName: `@${info.handle}`,
-        externalUserId: info.did,
-        meta: null,
-      };
-    } else if (platform === "devto") {
-      const apiKey = String(body.apiKey ?? "").trim();
-      const info = await validateDevto(apiKey);
-      data = {
-        accessToken: apiKey,
-        handle: info.username,
-        displayName: info.name,
-        externalUserId: info.id,
-        meta: null,
-      };
-    } else if (platform === "hashnode") {
-      // The publication id is resolved at connect time and cached in meta —
-      // publishPost requires it and the composer has nowhere to ask for it.
-      const token = String(body.token ?? "").trim();
-      const info = await validateHashnode(token);
-      data = {
-        accessToken: token,
-        handle: info.username,
-        displayName: info.publicationTitle,
-        externalUserId: info.publicationId,
-        meta: JSON.stringify({ publicationId: info.publicationId }),
-      };
-    } else if (platform === "wordpress") {
-      // accessToken holds the application password; the site URL and username
-      // it authenticates against go in meta.
-      const appPassword = String(body.appPassword ?? "").trim();
-      const username = String(body.username ?? "").trim();
-      const info = await validateWordPress(String(body.siteUrl ?? ""), username, appPassword);
-      data = {
-        accessToken: appPassword,
-        handle: username,
-        displayName: `${info.displayName} (${new URL(info.site).host})`,
-        externalUserId: info.userId,
-        meta: JSON.stringify({ site: info.site, username }),
-      };
-    } else if (platform === "mastodon") {
-      // Per-instance limits are captured now so the publisher doesn't have to
-      // re-discover them on every post.
-      const accessToken = String(body.accessToken ?? "").trim();
-      const info = await validateMastodon(String(body.instanceUrl ?? ""), accessToken);
-      data = {
-        accessToken,
-        handle: info.acct,
-        displayName: `@${info.acct}@${new URL(info.instance).host}`,
-        externalUserId: info.userId,
-        meta: JSON.stringify({ instance: info.instance, limits: info.limits }),
-      };
-    } else if (platform === "listmonk") {
-      const apiToken = String(body.apiToken ?? "").trim();
-      const apiUser = String(body.apiUser ?? "").trim();
-      const info = await validateListmonk(
-        String(body.baseUrl ?? ""),
-        apiUser,
-        apiToken,
-        String(body.listId ?? "")
-      );
-      data = {
-        accessToken: apiToken,
-        handle: apiUser,
-        displayName: `${info.listName} (${new URL(info.base).host})`,
-        externalUserId: String(info.listId),
-        meta: JSON.stringify({ base: info.base, apiUser, listId: info.listId }),
-      };
-    } else {
-      // telegram — bot token + channel/chat id
-      const botToken = String(body.botToken ?? "").trim();
-      const chatId = String(body.chatId ?? "").trim();
-      const info = await validateTelegram(botToken, chatId);
-      data = {
-        accessToken: botToken,
-        handle: info.chatTitle,
-        displayName: info.chatTitle,
-        externalUserId: info.botId,
-        meta: JSON.stringify({ chatId }),
-      };
-    }
+    const data = await validate(body);
 
+    // The validator's result is spread FIRST so it can never override the
+    // ownership-checked profileId or the resolved platform — those are ours to
+    // decide, not a validator's, and putting them last keeps a cross-tenant
+    // write impossible even if a validator ever returns unexpected keys.
     await db.socialAccount.upsert({
       where: { profileId_platform: { profileId: profile.id, platform } },
       update: { ...data, status: "connected" },
-      create: { profileId: profile.id, platform, status: "connected", ...data },
+      create: { ...data, profileId: profile.id, platform, status: "connected" },
     });
     return NextResponse.json({ success: true });
   } catch (err) {

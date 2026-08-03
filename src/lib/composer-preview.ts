@@ -51,11 +51,17 @@ export function parseMediaUrls(raw: string): string[] {
 }
 
 export function derivePreview(state: ComposerState): ComposerPreview {
-  const { method, files } = state;
+  const { method } = state;
 
-  // Text mode ignores any file selection completely. The files stay in
-  // component state so switching back to file mode restores them, but they are
-  // not part of this post — not shown, not counted, not uploaded.
+  // Each input mode owns exactly ONE source of media: file mode the picked
+  // files, url mode the pasted URLs, text mode neither. The other sources stay
+  // in component state so switching back restores them, but they are not part
+  // of this post — not shown, not counted, not uploaded. Scoping both here
+  // rather than at each use site is what stops the panel disagreeing with what
+  // actually gets sent.
+  const files = method === "file" ? state.files : [];
+  const urls = method === "url" ? parseMediaUrls(state.mediaUrls) : [];
+
   if (method === "text") {
     return {
       postType: "text",
@@ -69,7 +75,6 @@ export function derivePreview(state: ComposerState): ComposerPreview {
     };
   }
 
-  const urls = method === "url" ? parseMediaUrls(state.mediaUrls) : [];
   const hasFiles = files.length > 0;
   const hasUrls = urls.length > 0;
   const hasMedia = hasFiles || hasUrls;

@@ -187,10 +187,12 @@ ${selected.map((p) => `  -F 'platform[]=${p}' \\`).join("\n")}${selected.length 
     if (method === "url") {
       form.set("mediaUrls", JSON.stringify(mediaUrls.split("\n").map((s) => s.trim()).filter(Boolean)));
     }
-    // A text post carries no media. `files` is kept in state so switching back
-    // to file mode restores the selection, but sending it here would upload
-    // files the composer isn't showing and the user didn't intend to attach.
-    if (method !== "text") {
+    // Only file mode sends files — url mode sends mediaUrls above, text mode
+    // sends neither. `files` is kept in state so switching back restores the
+    // selection, but sending it in another mode would upload media the composer
+    // isn't showing and the user didn't intend to attach. Mirrors the scoping
+    // in derivePreview, so what is sent matches what the panel showed.
+    if (method === "file") {
       for (const f of files) form.append("media", f);
     }
 

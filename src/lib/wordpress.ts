@@ -8,7 +8,7 @@
 
 import { StoredFile, readStoredFile } from "./upload";
 import { PostType } from "./platforms";
-import { safeFetch, BlockedUrlError } from "./safe-fetch";
+import { fetchUserHost } from "./safe-fetch";
 import { normalizeExternalBaseUrl } from "./base-url";
 
 export const normalizeSiteUrl = (raw: string) =>
@@ -27,20 +27,14 @@ async function wpFetch(
   path: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  try {
-    // NOTE: safeFetch preserves headers across redirects, so a site that
-    // redirects cross-host would forward this Basic credential. That's the
-    // user's own site config; the SSRF guard is the part that matters here.
-    return await safeFetch(`${site}/wp-json/wp/v2${path}`, {
-      ...init,
-      headers: { ...(init.headers ?? {}), authorization: auth },
-    });
-  } catch (err) {
-    if (err instanceof BlockedUrlError) {
-      throw new Error(`Can't reach that WordPress site — ${err.message}`);
-    }
-    throw err;
-  }
+  // NOTE: safeFetch preserves headers across redirects, so a site that
+  // redirects cross-host would forward this Basic credential. That's the user's
+  // own site config; the SSRF guard is the part that matters here.
+  return fetchUserHost(
+    `${site}/wp-json/wp/v2${path}`,
+    { ...init, headers: { ...(init.headers ?? {}), authorization: auth } },
+    "WordPress site"
+  );
 }
 
 export async function validateWordPress(
