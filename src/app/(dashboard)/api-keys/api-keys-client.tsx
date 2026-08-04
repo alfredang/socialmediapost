@@ -74,6 +74,8 @@ export function ApiKeysClient({
   const router = useRouter();
   const [newKey, setNewKey] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [newKeyCopied, setNewKeyCopied] = useState(false);
   const [snippetTab, setSnippetTab] = useState<"cURL" | "JavaScript" | "Python">("cURL");
   const [reqTab, setReqTab] = useState("tiktok");
 
@@ -96,7 +98,12 @@ export function ApiKeysClient({
   }
 
   async function revoke(id: string) {
-    if (!window.confirm("Revoke this key? Requests using it will stop working immediately.")) return;
+    if (
+      !window.confirm(
+        "Revoke and delete this key? Requests using it stop working immediately and the key is removed for good — this cannot be undone."
+      )
+    )
+      return;
     await fetch(`/api/internal/keys?id=${id}`, { method: "DELETE" });
     router.refresh();
   }
@@ -114,14 +121,39 @@ export function ApiKeysClient({
         </p>
       </div>
 
+      {/* The ONLY moment the full key exists outside the caller's hands: it is
+          SHA-256 hashed on save, so this banner is the single chance to copy it.
+          Hence the explicit copy button and the dismiss-to-confirm step. */}
       {newKey && (
-        <div className="rounded-xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950 p-4">
-          <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-            Your new API key — copy it now, it won&apos;t be shown again:
+        <div className="rounded-xl border-2 border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950 p-4">
+          <p className="text-sm font-bold text-green-900 dark:text-green-200">
+            Copy your new API key now — it is never shown again.
           </p>
-          <code className="mt-2 block break-all rounded-lg bg-white dark:bg-slate-900 border border-green-200 dark:border-green-800 px-3 py-2 font-mono text-sm text-slate-900 dark:text-slate-100">
-            {newKey}
-          </code>
+          <p className="mt-1 text-xs text-green-800 dark:text-green-300">
+            Only a hash is stored, so it cannot be recovered later. If you lose it, create a
+            new key and update wherever the old one was used.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 break-all rounded-lg bg-white dark:bg-slate-900 border border-green-200 dark:border-green-800 px-3 py-2 font-mono text-sm text-slate-900 dark:text-slate-100">
+              {newKey}
+            </code>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(newKey);
+                setNewKeyCopied(true);
+                setTimeout(() => setNewKeyCopied(false), 2000);
+              }}
+              className="btn-primary shrink-0"
+            >
+              {newKeyCopied ? "✓ Copied" : "Copy key"}
+            </button>
+          </div>
+          <button
+            onClick={() => setNewKey(null)}
+            className="mt-3 text-xs font-semibold text-green-800 dark:text-green-300 underline cursor-pointer"
+          >
+            I&apos;ve saved it — hide this
+          </button>
         </div>
       )}
 
@@ -163,6 +195,31 @@ export function ApiKeysClient({
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" /><circle cx="12" cy="12" r="3" />
                         </svg>
+                      </button>
+                      {/* Copies the prefix — the only part of the key that still exists.
+                          The full key is SHA-256 hashed at creation and shown once, so
+                          there is nothing else to put on the clipboard. The title says
+                          so, rather than letting a "copy" button imply otherwise. */}
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(k.prefix);
+                          setCopied(k.id);
+                          setTimeout(() => setCopied((c) => (c === k.id ? null : c)), 1500);
+                        }}
+                        aria-label="Copy key prefix"
+                        title="Copy the key prefix (for identifying this key). The full key is only shown once, at creation."
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                      >
+                        {copied === k.id ? (
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-500">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        ) : (
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        )}
                       </button>
                     </span>
                   </td>

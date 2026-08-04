@@ -12,7 +12,13 @@ export default async function ApiKeysPage() {
   const plan = getPlan(account.plan);
 
   const [keys, usage] = await Promise.all([
-    db.apiKey.findMany({ where: { accountId: account.id }, orderBy: { createdAt: "asc" } }),
+    // Revoked keys are hidden: they can never authenticate again and their
+    // plaintext is unrecoverable, so listing them is pure clutter. Rows created
+    // before revocation became a hard delete are filtered out here.
+    db.apiKey.findMany({
+      where: { accountId: account.id, status: { not: "revoked" } },
+      orderBy: { createdAt: "asc" },
+    }),
     monthlyUsage(account.id),
   ]);
 
