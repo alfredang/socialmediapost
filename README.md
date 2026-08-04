@@ -2,7 +2,7 @@
 
 **One API call to post on every social platform.** A full-stack social media publishing platform — post videos, photos, text and documents to **22 networks** (TikTok, Instagram, YouTube, LinkedIn, Facebook, X, Threads, Pinterest, Reddit, Bluesky, Mastodon, Telegram, Discord, Slack, Dev.to, Hashnode, WordPress and more) from a single REST API, dashboard, SDK, or AI agent.
 
-![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js) ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react) ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript) ![Tailwind](https://img.shields.io/badge/Tailwind-4-38BDF8?logo=tailwindcss) ![Prisma](https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma) ![SQLite](https://img.shields.io/badge/SQLite-dev.db-003B57?logo=sqlite)
+![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js) ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react) ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript) ![Tailwind](https://img.shields.io/badge/Tailwind-4-38BDF8?logo=tailwindcss) ![Prisma](https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql) ![Docker](https://img.shields.io/badge/Docker-Coolify--ready-2496ED?logo=docker)
 
 ![SocialPost — landing page](screenshot.png)
 
@@ -24,6 +24,10 @@
 
 ```bash
 npm install
+
+# Postgres connection string — required (Prisma targets postgresql).
+export DATABASE_URL="postgresql://user:pass@localhost:5432/socialpost"
+
 npx prisma migrate dev      # applies migrations
 
 # Optional bootstrap account — opt-in, and you supply the credentials.
@@ -92,16 +96,25 @@ src/
   components/             # sidebar nav, theme toggle, platform icons, etc.
 prisma/                   # schema, migrations, seed
 sdks/                     # python · node · n8n · vscode · mcp
-tests/post-course.test.mjs  # e2e test: post a course announcement to LinkedIn+Facebook
+tests/                    # functional suite + runner (see tests/README.md)
 design-system/            # persisted UI design system (MASTER.md)
 ```
 
 ## Testing
 
+The suite runs against a live dev server — each file self-provisions a throwaway
+account and cleans up after itself.
+
 ```bash
-npm run dev &                       # start the server
-node tests/post-course.test.mjs    # 9 end-to-end assertions
+npm run dev &    # start the server first
+npm test         # runs tests/run-all.mjs
 ```
+
+`npm test` covers auth, account, public API, queue/media, drafts, pipelines, authz,
+quotas, dashboard sessions, webhooks, the SDKs, composer previews and platform
+adapters. The real-posting scenario is deliberately excluded from the runner — run
+`node tests/post-course.test.mjs` on its own when you actually want to publish to
+LinkedIn + Facebook. See [tests/README.md](tests/README.md) for details.
 
 ## Acknowledgements
 
