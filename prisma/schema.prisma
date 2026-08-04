@@ -276,3 +276,17 @@ model OtpCode {
   usedAt    DateTime?
   createdAt DateTime  @default(now())
 }
+
+// Instance-wide configuration entered by an admin in /settings, so an operator
+// can set up OAuth and SMTP without a redeploy. One row per setting key.
+//
+// `value` holds plaintext for non-sensitive keys (SMTP_HOST, MAIL_FROM) and a
+// secret-box ciphertext when `encrypted` is true (SMTP_PASS, *_CLIENT_SECRET).
+// Environment variables always take precedence — see lib/settings.ts.
+model Setting {
+  key       String   @id
+  value     String
+  encrypted Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}

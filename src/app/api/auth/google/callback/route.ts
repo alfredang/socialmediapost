@@ -4,9 +4,13 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/session";
 import { appBaseUrl } from "@/lib/base-url";
+import { applySettingsToEnv } from "@/lib/settings";
 
 // GET /api/auth/google/callback — completes the real Google OAuth flow
 export async function GET(req: NextRequest) {
+  // Credentials may come from the admin settings page rather than the
+  // environment; the token exchange below reads them off process.env.
+  await applySettingsToEnv();
   const base = appBaseUrl(req.nextUrl.origin);
 
   const code = req.nextUrl.searchParams.get("code");

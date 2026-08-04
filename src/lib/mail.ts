@@ -90,6 +90,16 @@ async function sendViaSmtp(to: string, subject: string, text: string, html: stri
 
 export async function sendOtpEmail(to: string, code: string, magicLink: string) {
   const { subject, text, html } = otpTemplate(code, magicLink);
+  return sendMail(to, subject, text, html);
+}
+
+// Generic send over whichever transport is configured, same priority as above.
+// Used by the admin settings page to verify SMTP credentials before real
+// sign-in traffic depends on them.
+export async function sendMail(to: string, subject: string, text: string, html: string) {
+  if (!emailConfigured()) {
+    throw new Error("No email transport configured — set SMTP_HOST or BREVO_API_KEY");
+  }
   if (process.env.BREVO_API_KEY) return sendViaBrevo(to, subject, text, html);
   return sendViaSmtp(to, subject, text, html);
 }

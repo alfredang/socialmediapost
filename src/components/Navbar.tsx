@@ -29,6 +29,11 @@ const MENU = [
   { href: "/support", label: "Support" },
 ];
 
+// Instance-wide config (OAuth, SMTP). Appended for admins only — the page and
+// its API enforce the same check, so hiding it here is presentation, not the
+// access control itself.
+const ADMIN_MENU = [{ href: "/settings", label: "Instance Settings" }];
+
 interface Notification {
   id: string;
   kind: string;
@@ -65,7 +70,7 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
   );
 }
 
-export function Navbar({ email, plan }: { email: string; plan: string }) {
+export function Navbar({ email, plan, isAdmin = false }: { email: string; plan: string; isAdmin?: boolean }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
@@ -169,7 +174,7 @@ export function Navbar({ email, plan }: { email: string; plan: string }) {
         </button>
         {menuOpen && (
           <div className="absolute bottom-14 left-0 right-0 z-50 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 shadow-xl overflow-hidden">
-            {MENU.map((item) => (
+            {[...MENU, ...(isAdmin ? ADMIN_MENU : [])].map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
