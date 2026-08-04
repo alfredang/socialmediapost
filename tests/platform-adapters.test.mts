@@ -9,6 +9,8 @@ import { devtoTags } from "../src/lib/devto";
 import { extractHashtags, stripHashtags, adaptContent, PLATFORM_MAP } from "../src/lib/platforms";
 import { CREDENTIAL_VALIDATORS } from "../src/lib/credential-connect";
 import { REAL_PUBLISHERS } from "../src/lib/publishers";
+import { isBlockedAddress, assertFetchableUrl } from "../src/lib/safe-fetch";
+import { signMediaPath, verifyMediaSignature } from "../src/lib/media-url";
 
 console.log("\nSocialPost — credential platform adapters");
 
@@ -142,6 +144,106 @@ section("platform registries can't be indexed through Object.prototype");
     assert.strictEqual(CREDENTIAL_VALIDATORS["not-a-platform"], undefined);
     assert.strictEqual(REAL_PUBLISHERS["not-a-platform"], undefined);
   });
+}
+
+section("SSRF guard: the same address is blocked in every notation");
+{
+  // The point of these: 127.0.0.1 must not be reachable just by spelling it
+  // differently. ::ffff:7f00:1 and ::ffff:127.0.0.1 are the SAME address.
+  const blocked = [
+    ["127.0.0.1", "loopback"],
+    ["10.1.2.3", "RFC1918"],
+    ["172.16.0.1", "RFC1918"],
+    ["192.168.1.1", "RFC1918"],
+    ["169.254.169.254", "cloud metadata"],
+    ["100.64.0.1", "CGNAT"],
+    ["0.0.0.0", "this-network"],
+    ["198.18.0.1", "benchmarking 198.18/15"],
+    ["::1", "v6 loopback"],
+    ["fe80::1", "v6 link-local"],
+    ["fd00::1", "v6 unique-local"],
+    ["::ffff:127.0.0.1", "v4-mapped, dotted"],
+    ["::ffff:7f00:1", "v4-mapped, hex — same as 127.0.0.1"],
+    ["::ffff:a01:203", "v4-mapped, hex — same as 10.1.2.3"],
+    ["64:ff9b::7f00:1", "NAT64, hex — same as 127.0.0.1"],
+    ["64:ff9b::169.254.169.254", "NAT64, dotted — metadata"],
+    ["not-an-ip", "unparseable refuses rather than guesses"],
+  ] as const;
+  for (const [ip, why] of blocked) {
+    check(`blocks ${ip} (${why})`, () => assert.strictEqual(isBlockedAddress(ip), true));
+  }
+
+  check("still allows genuinely public addresses", () => {
+    for (const ip of ["8.8.8.8", "1.1.1.1", "2606:4700::1", "::ffff:8.8.8.8", "::ffff:808:808"]) {
+      assert.strictEqual(isBlockedAddress(ip), false, `${ip} should be allowed`);
+    }
+  });
+
+  check("hex and dotted spellings always agree", () => {
+    for (const [dotted, hex] of [
+      ["::ffff:127.0.0.1", "::ffff:7f00:1"],
+      ["::ffff:10.1.2.3", "::ffff:a01:203"],
+      ["::ffff:8.8.8.8", "::ffff:808:808"],
+    ]) {
+      assert.strictEqual(isBlockedAddress(dotted), isBlockedAddress(hex), `${dotted} vs ${hex}`);
+    }
+  });
+
+  check("scheme allowlist rejects non-http(s)", () => {
+    for (const u of ["file:///etc/passwd", "gopher://a.com", "ftp://a.com", "data:text/html,x"]) {
+      assert.throws(() => assertFetchableUrl(u), /Unsupported URL scheme|not a valid/);
+    }
+    assert.ok(assertFetchableUrl("https://example.com"));
+  });
+}
+section("media URLs are signed, scoped to one file, and expire");
+{
+  const key = "1785485953363-712296755c25.mp4";
+  const other = "1784782484427-82430250a592.mp4";
+  const parse = (signed: string) => {
+    const [, qs] = signed.split("?");
+    const p = new URLSearchParams(qs);
+    return { exp: p.get("exp"), sig: p.get("sig") };
+  };
+
+  const { exp, sig } = parse(signMediaPath(key));
+
+  check("a freshly signed URL verifies", () =>
+    assert.strictEqual(verifyMediaSignature(key, exp, sig), true));
+
+  check("unsigned requests are refused", () => {
+    assert.strictEqual(verifyMediaSignature(key, null, null), false);
+    assert.strictEqual(verifyMediaSignature(key, exp, null), false);
+    assert.strictEqual(verifyMediaSignature(key, null, sig), false);
+  });
+
+  // The whole point: possession of one file's URL must not grant another's.
+  check("a signature does not transfer to a different file", () =>
+    assert.strictEqual(verifyMediaSignature(other, exp, sig), false));
+
+  check("the expiry is covered by the signature", () =>
+    // Extending exp without re-signing must fail, or the TTL is decorative.
+    assert.strictEqual(verifyMediaSignature(key, String(Number(exp) + 60_000), sig), false));
+
+  check("an expired URL is refused", () => {
+    const past = parse(signMediaPath(key, -1000));
+    assert.strictEqual(verifyMediaSignature(key, past.exp, past.sig), false);
+  });
+
+  check("a tampered signature is refused", () => {
+    const flipped = sig!.slice(0, -1) + (sig!.endsWith("A") ? "B" : "A");
+    assert.strictEqual(verifyMediaSignature(key, exp, flipped), false);
+  });
+
+  check("malformed exp values are refused, not crashed on", () => {
+    for (const bad of ["", "abc", "NaN", "Infinity", "1e999"]) {
+      assert.strictEqual(verifyMediaSignature(key, bad, sig), false, `exp=${bad}`);
+    }
+  });
+
+  check("signatures of different lengths don't throw", () =>
+    // timingSafeEqual throws on length mismatch — the guard must catch it.
+    assert.strictEqual(verifyMediaSignature(key, exp, "short"), false));
 }
 
 process.exit(done("platform-adapters.test.mts"));

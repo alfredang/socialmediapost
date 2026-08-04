@@ -46,7 +46,7 @@ const secret = sessionSecret();
 // purpose fails signature verification for any other. The `kind` claim is
 // checked as well, but the key separation is what makes cross-use impossible
 // rather than merely detected.
-type TokenKind = "session" | "profile-share" | "oauth-state";
+type TokenKind = "session" | "profile-share" | "oauth-state" | "media-url";
 
 const keyCache = new Map<TokenKind, Uint8Array>();
 
@@ -58,6 +58,13 @@ function keyFor(kind: TokenKind): Uint8Array {
   );
   keyCache.set(kind, derived);
   return derived;
+}
+
+// Media URLs are signed with an HMAC rather than a JWT (they go in a query
+// string that third-party servers fetch), but they take their key from the same
+// derivation so a media signature can never be replayed as a session.
+export function mediaSigningKey(): Uint8Array {
+  return keyFor("media-url");
 }
 
 const COOKIE = "sp_session";

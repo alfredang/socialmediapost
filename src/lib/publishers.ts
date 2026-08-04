@@ -5,6 +5,7 @@
 import type { SocialAccount } from "@prisma/client";
 import { PostType, ConnectablePlatform } from "./platforms";
 import { StoredFile } from "./upload";
+import { signMediaPath } from "./media-url";
 import { publishToInstagram } from "./instagram";
 import { publishToFacebook } from "./facebook";
 import { publishToLinkedIn } from "./linkedin";
@@ -23,6 +24,9 @@ import { publishToListmonk } from "./listmonk";
 
 // Builds a public URL a platform's servers can fetch a stored media file from.
 // Media-URL stubs (mime "url") are already public — pass them through.
+//
+// The URL is signed and expires: /api/media serves nothing without a valid
+// signature, so this link grants read access to exactly this file, for a day.
 export function publicMediaUrl(file: StoredFile): string {
   if (file.mime === "url") return file.name;
   const base = process.env.PUBLIC_BASE_URL;
@@ -31,7 +35,7 @@ export function publicMediaUrl(file: StoredFile): string {
       "PUBLIC_BASE_URL is not set — this platform needs a public https URL to fetch your media"
     );
   }
-  return `${base.replace(/\/$/, "")}/api/media/${file.path}`;
+  return `${base.replace(/\/$/, "")}/api/media/${signMediaPath(file.path)}`;
 }
 
 export interface PublishContext {
