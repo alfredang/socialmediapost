@@ -42,10 +42,20 @@ npm run dev                 # http://localhost:3000
 
 **Configuring Google sign-in and SMTP:** register an account, promote it to admin, then open
 `/settings` (avatar menu → Instance Settings) and paste the credentials — no redeploy needed.
-The page is admin-only and returns 404 to everyone else, so the promotion has to happen first:
+The page is admin-only and returns 404 to everyone else, so the promotion has to happen first.
 
-```sql
-UPDATE "Account" SET role='admin' WHERE email='you@example.com';
+Set **`ADMIN_EMAIL`** to an address that has already registered and the container promotes it
+on boot — no psql session against a database that isn't publicly reachable:
+
+```bash
+ADMIN_EMAIL=you@example.com      # promoted by docker-entrypoint.sh at startup
+```
+
+It's idempotent (safe to leave set across restarts) and never *creates* an account — register
+the address first, or promotion is skipped. Outside Docker, run it directly:
+
+```bash
+ADMIN_EMAIL=you@example.com npx tsx prisma/promote-admin.ts
 ```
 
 > Upgrading an existing install? The old seed wrote demo accounts (with credentials published in this repo), fake published posts and generated analytics into your database. `npx tsx prisma/purge-demo-data.ts` reports them; add `--apply` to remove them.
@@ -97,7 +107,7 @@ src/
     api/                  # Public API + auth + internal dashboard routes
     (dashboard)/          # users, upload, pipelines, calendar(+queue), history,
                           # analytics, api-keys, pricing, profile(+invoices),
-                          # team, support, docs, connected-apps, settings
+                          # team, support, docs, connected-apps, comments, settings
     login/  connect/      # passwordless login · whitelabel connect page
     page.tsx              # landing page (curl lead magnet)
   lib/                    # platforms registry/adapters, publish engine, queue,
@@ -105,7 +115,8 @@ src/
                           # settings resolver + secret-box encryption
   components/             # sidebar nav, theme toggle, platform icons, etc.
 prisma/                   # schema + seed (no migrations — `prisma db push`
-                          # applies the schema at container start)
+                          # applies the schema at container start), plus the
+                          # promote-admin / purge-demo-data maintenance scripts
 sdks/                     # python · node · n8n · vscode · mcp
 tests/                    # functional suite + runner (see tests/README.md)
 design-system/            # persisted UI design system (MASTER.md)
