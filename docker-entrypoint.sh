@@ -13,5 +13,13 @@ else
   echo "[entrypoint] SEED_DEMO_DATA is not \"true\" — skipping seed."
 fi
 
+# Grants the instance-admin role to an existing account, so an operator can
+# reach /settings (Google OAuth, SMTP) without a psql session against a database
+# that is not publicly reachable. Idempotent and never creates an account.
+if [ -n "$ADMIN_EMAIL" ]; then
+  echo "[entrypoint] ensuring $ADMIN_EMAIL is an admin..."
+  npx tsx prisma/promote-admin.ts || echo "[entrypoint] admin promotion failed — continuing."
+fi
+
 echo "[entrypoint] starting Next.js..."
 exec npm start
