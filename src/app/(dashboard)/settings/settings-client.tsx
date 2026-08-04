@@ -51,6 +51,7 @@ export function SettingsClient({
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [testTo, setTestTo] = useState(adminEmail);
   const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
   const groups = useMemo(
     () => ({
@@ -88,6 +89,7 @@ export function SettingsClient({
   async function sendTest() {
     setTesting(true);
     setNotice(null);
+    setTestResult(null);
     try {
       const res = await fetch("/api/internal/settings", {
         method: "POST",
@@ -95,13 +97,19 @@ export function SettingsClient({
         body: JSON.stringify({ action: "test-email", to: testTo }),
       });
       const data = await res.json();
-      setNotice(
+      const result =
         res.ok && data.success
-          ? { kind: "ok", text: data.message }
-          : { kind: "error", text: data.error || "Test email failed." }
-      );
+          ? { kind: "ok" as const, text: data.message }
+          : { kind: "error" as const, text: data.error || "Test email failed." };
+      // Shown BOTH inline (beside the button, where the user is looking) and in
+      // the page-top banner. The banner alone is off-screen for anyone scrolled
+      // down to the SMTP section, which reads as "nothing happened".
+      setTestResult(result);
+      setNotice(result);
     } catch {
-      setNotice({ kind: "error", text: "Network error while sending." });
+      const result = { kind: "error" as const, text: "Network error while sending." };
+      setTestResult(result);
+      setNotice(result);
     }
     setTesting(false);
   }
@@ -222,6 +230,18 @@ export function SettingsClient({
               {testing ? "Sending…" : "Send test"}
             </button>
           </div>
+          {testResult ? (
+            <p
+              className={
+                testResult.kind === "ok"
+                  ? "mt-2 text-sm font-medium text-emerald-700 dark:text-emerald-400"
+                  : "mt-2 text-sm font-medium text-red-700 dark:text-red-400"
+              }
+            >
+              {testResult.kind === "ok" ? "✓ " : "✗ "}
+              {testResult.text}
+            </p>
+          ) : null}
         </div>
       </section>
 
@@ -241,7 +261,24 @@ export function SettingsClient({
             Discard
           </button>
         ) : null}
+        {/* Repeated beside the button: the page-top banner is off-screen for
+            anyone scrolled down here, which reads as the save doing nothing. */}
+        {!dirty && notice ? (
+          <span
+            className={
+              notice.kind === "ok"
+                ? "text-sm font-medium text-emerald-700 dark:text-emerald-400"
+                : "text-sm font-medium text-red-700 dark:text-red-400"
+            }
+          >
+            {notice.kind === "ok" ? "✓ " : "✗ "}
+            {notice.text}
+          </span>
+        ) : null}
       </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Saved settings take effect immediately — no redeploy needed.
+      </p>
     </div>
   );
 }
