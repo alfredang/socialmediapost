@@ -49,6 +49,62 @@ empty DB, destructive once there are real rows. Before launch:
 From then on, schema changes ship as reviewable, reversible migrations that never
 silently delete production data.
 
+## Host egress hardening (not in this repo)
+
+**Status: NOT applied as of 2026-08.** Recorded here because it is host state —
+invisible to the code, and it silently disappears on a server rebuild or
+migration, at which point nothing in a code review would reveal the safety net
+is gone.
+
+The app fetches URLs supplied by callers (`media_url`, and the WordPress /
+Mastodon / Listmonk instance URLs). [src/lib/safe-fetch.ts](src/lib/safe-fetch.ts)
+gates every one: scheme allowlist, DNS resolution checked against private
+ranges, and per-hop redirect re-validation.
+
+**That guard has a residual gap it cannot close on its own.** It resolves the
+hostname, validates the addresses, then hands `fetch()` a *hostname* — which
+resolves again. An attacker serving TTL-0 records can return a public address to
+the check and a private one to the fetch (DNS rebinding). Closing it in code
+means pinning the validated IP for the connection, which needs either `undici`
+as a dependency or rewriting `safeFetch` on `node:https`.
+
+A host firewall rule closes the *consequence* rather than the race, protects
+every future SSRF sink, and holds even when the app's checks are wrong:
+
+```bash
+sudo iptables  -I DOCKER-USER -d 169.254.0.0/16 -j DROP
+sudo ip6tables -I DOCKER-USER -d fe80::/10      -j DROP
+sudo apt install iptables-persistent && sudo netfilter-persistent save
+```
+
+- `DOCKER-USER` is the one chain Docker never flushes, so it survives container
+  recreation and Docker daemon restarts. It does **not** survive a reboot
+  unless persisted — hence the third line.
+- Link-local is the highest-value target (cloud metadata: instance credentials,
+  SSH keys, user-data) and **nothing in this app uses it**, so the rule is
+  safe by inspection. Postgres is on a different range and is unaffected.
+- Cannot lock you out of SSH: it filters `FORWARD` (container → outside) by
+  destination, while SSH arrives on the public IP via `INPUT`.
+
+Verify before and after — the first should start failing, the others must keep
+working:
+
+```bash
+docker exec <container> wget -qO- --timeout=3 http://169.254.169.254/ ; echo "exit=$?"
+docker exec <container> nslookup graph.instagram.com
+docker exec <container> wget -qO- --timeout=5 https://graph.instagram.com/ >/dev/null; echo "outbound=$?"
+```
+
+**Do not** extend this to a blanket RFC1918 deny without first allowing the
+database. `iptables -I` inserts at the top, so the allow rule must be added
+*after* the deny to end up *above* it; get the order wrong and the app loses
+Postgres. The link-local rule alone needs no allowlist, which is why it is the
+one recommended here.
+
+Revisit the code-level fix before: real customer data lands, the app moves to a
+provider whose metadata serves IAM credentials (AWS without IMDSv2 enforced), or
+another endpoint starts fetching user-supplied URLs.
+
 ## Reminder
 
 These are external-dependency drifts with no automated guard — LinkedIn
