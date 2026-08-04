@@ -35,6 +35,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# OAuth client credentials downloaded from the Google Cloud console — the
+# client_id/client_secret belong in the admin settings page, never in git.
+client_secret_*.json
+*.apps.googleusercontent.com.json
+
 # vercel
 .vercel
 

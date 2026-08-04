@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appBaseUrl } from "@/lib/base-url";
+import { applySettingsToEnv } from "@/lib/settings";
 
 // GET /api/auth/google — starts Google OAuth.
-// Requires GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET. Without them the button
-// errors back to /login rather than signing anyone in.
+// Requires GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, from the environment or the
+// admin settings page. Without them the button errors back to /login rather
+// than signing anyone in.
 export async function GET(req: NextRequest) {
+  await applySettingsToEnv();
   const base = appBaseUrl(req.nextUrl.origin);
 
   const clientId = process.env.GOOGLE_CLIENT_ID;

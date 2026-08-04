@@ -3,11 +3,15 @@ import { randomBytes, randomInt } from "crypto";
 import { db } from "@/lib/db";
 import { appBaseUrl } from "@/lib/base-url";
 import { emailConfigured, sendOtpEmail } from "@/lib/mail";
+import { applySettingsToEnv } from "@/lib/settings";
 
 // POST /api/auth/request-otp — { email } → emails a 6-digit code + magic link.
 // Mail delivery is mandatory: the code only ever leaves this server by email.
 // Returning it in the response would let anyone sign in as any address.
 export async function POST(req: NextRequest) {
+  // SMTP may be configured in the admin settings page rather than the
+  // environment; mail.ts reads process.env.
+  await applySettingsToEnv();
   if (!emailConfigured()) {
     return NextResponse.json(
       {
