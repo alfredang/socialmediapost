@@ -29,6 +29,7 @@ const FILES = [
   "sdk.test.mjs",
   "composer-preview.test.mts",
   "platform-adapters.test.mts",
+  "media-limits.test.mts",
 ];
 
 // .mts files import app TypeScript directly, so node loads them through tsx;
