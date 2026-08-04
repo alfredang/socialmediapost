@@ -344,10 +344,10 @@ export function AnalyticsClient({
 
         <p className="mt-2 text-[11px] text-slate-400">
           Pick a tile to chart it below. Audience is summed followers; engagement is summed across{" "}
-          {engagementTotals.posts} post{engagementTotals.posts === 1 ? "" : "s"} published in this
-          period. Reach and impressions aren&apos;t totalled here — they count viewers per platform
-          and can&apos;t be added across platforms without double-counting, so they live in each
-          platform&apos;s panel below.
+          {engagementTotals.posts} post{engagementTotals.posts === 1 ? "" : "s"}{" "}
+          published in this period. Reach and impressions aren&apos;t totalled here — they count
+          viewers per platform and can&apos;t be added across platforms without double-counting, so
+          they live in each platform&apos;s panel below.
         </p>
 
         <div className="mt-5 h-72">

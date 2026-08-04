@@ -322,9 +322,13 @@ export function UsersClient({
         you to manage different sets of accounts separately.
       </p>
 
+      {/* The {" "} below is load-bearing: a JSX text node that contains an HTML
+          entity loses its leading space, so "Share button" would render as
+          "Sharebutton". Keep it whenever an entity follows an inline element. */}
       <div className="mt-4 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
         Want to let your own users connect their social media accounts? Generate a shareable
-        connect link with the <strong>Share</strong> button — that&apos;s the whitelabel profile API in action.
+        connect link with the <strong>Share</strong>{" "}
+        button — that&apos;s the whitelabel profile API in action.
       </div>
 
       {error && (
