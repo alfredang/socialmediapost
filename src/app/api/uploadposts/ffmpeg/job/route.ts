@@ -4,6 +4,7 @@ import path from "path";
 import { db } from "@/lib/db";
 import { authenticateApiKey } from "@/lib/apikey";
 import { getPlan } from "@/lib/plans";
+import { signMediaPath } from "@/lib/media-url";
 import {
   OPERATIONS,
   Operation,
@@ -148,7 +149,8 @@ export async function POST(req: NextRequest) {
       status: "completed",
       operation,
       minutes_charged: minutes,
-      output_url: `/api/media/${outputKey}`,
+      // Signed: /api/media rejects an unsigned or expired request.
+      output_url: `/api/media/${signMediaPath(outputKey)}`,
       output_bytes: outputBytes,
     });
   } catch (err) {
