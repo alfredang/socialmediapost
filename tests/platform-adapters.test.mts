@@ -9,6 +9,7 @@ import { devtoTags } from "../src/lib/devto";
 import { extractHashtags, stripHashtags, adaptContent, PLATFORM_MAP } from "../src/lib/platforms";
 import { CREDENTIAL_VALIDATORS } from "../src/lib/credential-connect";
 import { REAL_PUBLISHERS } from "../src/lib/publishers";
+import { isBlockedAddress, assertFetchableUrl } from "../src/lib/safe-fetch";
 
 console.log("\nSocialPost — credential platform adapters");
 
@@ -141,6 +142,57 @@ section("platform registries can't be indexed through Object.prototype");
   check("an unknown platform is still just a miss", () => {
     assert.strictEqual(CREDENTIAL_VALIDATORS["not-a-platform"], undefined);
     assert.strictEqual(REAL_PUBLISHERS["not-a-platform"], undefined);
+  });
+}
+
+section("SSRF guard: the same address is blocked in every notation");
+{
+  // The point of these: 127.0.0.1 must not be reachable just by spelling it
+  // differently. ::ffff:7f00:1 and ::ffff:127.0.0.1 are the SAME address.
+  const blocked = [
+    ["127.0.0.1", "loopback"],
+    ["10.1.2.3", "RFC1918"],
+    ["172.16.0.1", "RFC1918"],
+    ["192.168.1.1", "RFC1918"],
+    ["169.254.169.254", "cloud metadata"],
+    ["100.64.0.1", "CGNAT"],
+    ["0.0.0.0", "this-network"],
+    ["198.18.0.1", "benchmarking 198.18/15"],
+    ["::1", "v6 loopback"],
+    ["fe80::1", "v6 link-local"],
+    ["fd00::1", "v6 unique-local"],
+    ["::ffff:127.0.0.1", "v4-mapped, dotted"],
+    ["::ffff:7f00:1", "v4-mapped, hex — same as 127.0.0.1"],
+    ["::ffff:a01:203", "v4-mapped, hex — same as 10.1.2.3"],
+    ["64:ff9b::7f00:1", "NAT64, hex — same as 127.0.0.1"],
+    ["64:ff9b::169.254.169.254", "NAT64, dotted — metadata"],
+    ["not-an-ip", "unparseable refuses rather than guesses"],
+  ] as const;
+  for (const [ip, why] of blocked) {
+    check(`blocks ${ip} (${why})`, () => assert.strictEqual(isBlockedAddress(ip), true));
+  }
+
+  check("still allows genuinely public addresses", () => {
+    for (const ip of ["8.8.8.8", "1.1.1.1", "2606:4700::1", "::ffff:8.8.8.8", "::ffff:808:808"]) {
+      assert.strictEqual(isBlockedAddress(ip), false, `${ip} should be allowed`);
+    }
+  });
+
+  check("hex and dotted spellings always agree", () => {
+    for (const [dotted, hex] of [
+      ["::ffff:127.0.0.1", "::ffff:7f00:1"],
+      ["::ffff:10.1.2.3", "::ffff:a01:203"],
+      ["::ffff:8.8.8.8", "::ffff:808:808"],
+    ]) {
+      assert.strictEqual(isBlockedAddress(dotted), isBlockedAddress(hex), `${dotted} vs ${hex}`);
+    }
+  });
+
+  check("scheme allowlist rejects non-http(s)", () => {
+    for (const u of ["file:///etc/passwd", "gopher://a.com", "ftp://a.com", "data:text/html,x"]) {
+      assert.throws(() => assertFetchableUrl(u), /Unsupported URL scheme|not a valid/);
+    }
+    assert.ok(assertFetchableUrl("https://example.com"));
   });
 }
 

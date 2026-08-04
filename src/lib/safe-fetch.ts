@@ -28,16 +28,37 @@ function isBlockedIPv4(ip: string): boolean {
   if (a === 192 && b === 168) return true; // private
   if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
   if (a === 192 && b === 0) return true; // IETF protocol assignments
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking 198.18/15
   if (a >= 224) return true; // multicast + reserved + broadcast
   return false;
+}
+
+// Two 16-bit hex groups back to a dotted quad: 7f00:1 -> 127.0.0.1.
+function hexPairToIPv4(hi: string, lo: string): string {
+  const h = parseInt(hi, 16);
+  const l = parseInt(lo, 16);
+  return [h >> 8, h & 0xff, l >> 8, l & 0xff].join(".");
+}
+
+// An IPv4 address embedded in an IPv6 one, in any spelling that resolves to it.
+// Checking only the dotted form left the same address reachable written in hex:
+// ::ffff:7f00:1 IS 127.0.0.1, and 64:ff9b::7f00:1 is how a NAT64 gateway
+// expresses it. Both must inherit the IPv4 verdict, or the guard blocks a
+// loopback address in one notation and waves it through in another.
+function embeddedIPv4(addr: string): string | null {
+  const dotted = addr.match(/^(?:::ffff:|64:ff9b::)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) return dotted[1];
+  const hex = addr.match(/^(?:::ffff:|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hex) return hexPairToIPv4(hex[1], hex[2]);
+  return null;
 }
 
 function isBlockedIPv6(ip: string): boolean {
   const addr = ip.toLowerCase().split("%")[0]; // strip zone id
   if (addr === "::" || addr === "::1") return true; // unspecified / loopback
-  // IPv4-mapped (::ffff:a.b.c.d) inherits the IPv4 verdict.
-  const mapped = addr.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isBlockedIPv4(mapped[1]);
+  // IPv4-mapped (::ffff:…) and NAT64 (64:ff9b::…) inherit the IPv4 verdict.
+  const v4 = embeddedIPv4(addr);
+  if (v4) return isBlockedIPv4(v4);
   if (addr.startsWith("fe80")) return true; // link-local
   if (/^f[cd]/.test(addr)) return true; // unique local fc00::/7
   if (addr.startsWith("ff")) return true; // multicast
