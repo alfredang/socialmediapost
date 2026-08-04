@@ -15,6 +15,7 @@
 - **Whitelabel** — profiles API (`user` param), JWT connect-links so your customers link accounts under your brand
 - **Full API management** — named API keys (hashed, shown once), request logging, per-plan quotas (429), FFmpeg processing quota, idempotency keys
 - **Auth** — Google OAuth + email magic-link/OTP (passwordless), like modern SaaS
+- **Admin instance settings** — an admin configures Google OAuth and SMTP at `/settings` without a redeploy; secrets are encrypted at rest and write-only in the UI, and any value set in the environment wins and shows read-only
 - **AI copy assistant** — captions + hashtags (uses `ANTHROPIC_API_KEY` if set, offline heuristic otherwise)
 - **Dark/light theme**, sidebar dashboard, notifications, team management, simulated billing with invoices
 
@@ -28,7 +29,7 @@ npm install
 # Postgres connection string — required (Prisma targets postgresql).
 export DATABASE_URL="postgresql://user:pass@localhost:5432/socialpost"
 
-npx prisma migrate dev      # applies migrations
+npx prisma db push          # applies the schema (this repo keeps no migrations)
 
 # Optional bootstrap account — opt-in, and you supply the credentials.
 # Without SEED_ADMIN_PASSWORD / SEED_ADMIN_API_KEY, random ones are printed once.
@@ -38,6 +39,14 @@ npm run dev                 # http://localhost:3000
 ```
 
 **Sign in:** register with a password on `/login`, or use an email code — email sign-in needs `BREVO_API_KEY` or `SMTP_HOST` configured, since codes are only ever delivered by email.
+
+**Configuring Google sign-in and SMTP:** register an account, promote it to admin, then open
+`/settings` (avatar menu → Instance Settings) and paste the credentials — no redeploy needed.
+The page is admin-only and returns 404 to everyone else, so the promotion has to happen first:
+
+```sql
+UPDATE "Account" SET role='admin' WHERE email='you@example.com';
+```
 
 > Upgrading an existing install? The old seed wrote demo accounts (with credentials published in this repo), fake published posts and generated analytics into your database. `npx tsx prisma/purge-demo-data.ts` reports them; add `--apply` to remove them.
 
@@ -88,16 +97,19 @@ src/
     api/                  # Public API + auth + internal dashboard routes
     (dashboard)/          # users, upload, pipelines, calendar(+queue), history,
                           # analytics, api-keys, pricing, profile(+invoices),
-                          # team, support, docs, connected-apps
+                          # team, support, docs, connected-apps, settings
     login/  connect/      # passwordless login · whitelabel connect page
     page.tsx              # landing page (curl lead magnet)
   lib/                    # platforms registry/adapters, publish engine, queue,
-                          # scheduler, sessions, apikeys, plans, AI copy
+                          # scheduler, sessions, apikeys, plans, AI copy,
+                          # settings resolver + secret-box encryption
   components/             # sidebar nav, theme toggle, platform icons, etc.
-prisma/                   # schema, migrations, seed
+prisma/                   # schema + seed (no migrations — `prisma db push`
+                          # applies the schema at container start)
 sdks/                     # python · node · n8n · vscode · mcp
 tests/                    # functional suite + runner (see tests/README.md)
 design-system/            # persisted UI design system (MASTER.md)
+MAINTENANCE.md            # operational guardrails (e.g. host egress rules)
 ```
 
 ## Testing
