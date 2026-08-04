@@ -57,6 +57,7 @@ export function SettingsClient({
     () => ({
       google: rows.filter((r) => r.group === "google"),
       smtp: rows.filter((r) => r.group === "smtp"),
+      linkedin: rows.filter((r) => r.group === "linkedin"),
     }),
     [rows]
   );
@@ -199,6 +200,33 @@ export function SettingsClient({
           <CopyField label="Authorized redirect URI" value={redirectUri} />
         </div>
         <div className="grid gap-4 sm:grid-cols-2">{groups.google.map(field)}</div>
+      </section>
+
+      <section className="card space-y-4 p-6">
+        <div>
+          <h2 className="font-bold text-slate-900 dark:text-white">LinkedIn publishing</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Needed before a LinkedIn account can be connected on the Users page. Without it,
+            posts fail with &ldquo;LinkedIn account isn&rsquo;t OAuth-connected&rdquo;.
+          </p>
+        </div>
+        <div className="space-y-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 p-4">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Create an app at{" "}
+            <a
+              href="https://www.linkedin.com/developers/apps"
+              target="_blank"
+              rel="noopener"
+              className="underline hover:text-emerald-600 dark:hover:text-emerald-400"
+            >
+              linkedin.com/developers/apps
+            </a>
+            , add the <strong>Share on LinkedIn</strong> and <strong>Sign In with LinkedIn</strong>{" "}
+            products, then register this redirect URL:
+          </p>
+          <CopyField label="Authorized redirect URL" value={`${jsOrigin}/api/auth/linkedin/callback`} />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">{groups.linkedin.map(field)}</div>
       </section>
 
       <section className="card space-y-4 p-6">

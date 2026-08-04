@@ -11,7 +11,7 @@ import { decrypt, encrypt } from "./secret-box";
 export type SettingSpec = {
   key: string;
   label: string;
-  group: "google" | "smtp";
+  group: "google" | "smtp" | "linkedin";
   secret: boolean;
   placeholder?: string;
   hint?: string;
@@ -31,6 +31,11 @@ export const SETTING_SPECS: SettingSpec[] = [
   { key: "SMTP_PASS", label: "Password", group: "smtp", secret: true },
   { key: "SMTP_SECURE", label: "Force TLS", group: "smtp", secret: false, placeholder: "false", hint: "\"true\" for port 465; port 465 is treated as secure automatically" },
   { key: "MAIL_FROM", label: "From address", group: "smtp", secret: false, placeholder: "SocialPost <no-reply@example.com>" },
+
+  // LinkedIn publishing. Without these the Connect button on the Users page
+  // cannot start an OAuth flow, so posts fail with "isn't OAuth-connected".
+  { key: "LINKEDIN_CLIENT_ID", label: "Client ID", group: "linkedin", secret: false, placeholder: "86xxxxxxxxxxxx" },
+  { key: "LINKEDIN_CLIENT_SECRET", label: "Client secret", group: "linkedin", secret: true, placeholder: "WPL_AP1..." },
 ];
 
 const SPEC_BY_KEY = new Map(SETTING_SPECS.map((s) => [s.key, s]));
