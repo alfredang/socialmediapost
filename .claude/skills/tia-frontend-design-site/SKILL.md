@@ -1,9 +1,11 @@
 ---
-name: frontend-design
+name: tia-frontend-design-site
 description: Project-locked frontend design skill for SocialPost. Enforces the developer-tool aesthetic used across the landing page, login, and dashboard — emerald #22c55e primary, Space Grotesk UI type + JetBrains Mono for code/terminal elements, light AND dark themes (every page must work in both), rounded-lg/xl cards, top-navbar dashboard, SVG icons, terminal-style code blocks with Copy buttons. Use whenever building or restyling any page or component in this repo.
 ---
 
 # SocialPost — Developer-Tool Aesthetic
+
+**Load the user-level `tia-frontend-design` skill as well.** It owns the group's rules: no dead space or gaps, no chips, no template layouts, an animated hero, generated images and a lighter theme by default. This file records how they apply on this site and wins on theme and look.
 
 This skill is locked to ONE design direction: a clean **API developer portal** — think Stripe/Vercel docs energy with an emerald "code" accent. A developer should feel they're using a serious tool with a terminal soul. Do not invent new palettes, fonts, or moods.
 

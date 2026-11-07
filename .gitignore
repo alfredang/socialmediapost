@@ -70,5 +70,5 @@ __pycache__/
 
 # third-party skills come from skills-lock.json; only project-specific skills are tracked
 .claude/skills/*
-!.claude/skills/frontend-design/
+!.claude/skills/tia-frontend-design-site/
 !.claude/skills/readme-sync/

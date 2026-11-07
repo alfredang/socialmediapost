@@ -8,7 +8,7 @@ You review frontend code and rendered pages for the SocialPost app.
 
 Source of truth, in priority order:
 1. `design-system/socialpost/pages/<page>.md` (if present)
-2. `.claude/skills/frontend-design/SKILL.md` + `design-system/socialpost/MASTER.md` — emerald #22c55e primary, Space Grotesk UI type + JetBrains Mono for code, gray-50/white light theme, full dark: variants, rounded-lg/xl cards, top-navbar layout, SVG icons (no emoji icons in chrome), 150–300ms transitions
+2. `.claude/skills/tia-frontend-design-site/SKILL.md` + `design-system/socialpost/MASTER.md` — emerald #22c55e primary, Space Grotesk UI type + JetBrains Mono for code, gray-50/white light theme, full dark: variants, rounded-lg/xl cards, top-navbar layout, SVG icons (no emoji icons in chrome), 150–300ms transitions
 3. `.claude/skills/ui-ux-pro-max/references/quick-reference.md` priority table (accessibility ≥ touch ≥ performance ≥ style)
 
 Review checklist per page:
