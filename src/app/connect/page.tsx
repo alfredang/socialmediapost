@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { LogoMark } from "@/components/Logo";
 import { ConnectClient } from "./connect-client";
 
-export const metadata = { title: "Connect your accounts" };
+// Per-customer whitelabel link (JWT in ?token=) — never a search landing page.
+export const metadata = { title: "Connect your accounts", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
 // Whitelabel connect page: end users of an agency/SaaS land here via a JWT link

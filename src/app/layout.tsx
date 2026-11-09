@@ -14,7 +14,16 @@ const jbmono = JetBrains_Mono({
   weight: ["400", "500", "700"],
 });
 
+// Production origin. Used for absolute canonical / OG URLs; the env var lets a
+// staging build point elsewhere.
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://socialmediapost.tertiaryinfotech.com";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  // "./" resolves to each route's own path with the query string dropped, so
+  // every page self-canonicalises (GSC "Duplicate without user-selected
+  // canonical" was raised for pages that had no canonical at all).
+  alternates: { canonical: "./" },
   title: {
     default: "SocialPost — One API to post on every social platform",
     template: "%s · SocialPost",

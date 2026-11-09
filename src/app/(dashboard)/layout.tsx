@@ -2,6 +2,11 @@ import { redirect } from "next/navigation";
 import { getSessionAccount } from "@/lib/session";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import type { Metadata } from "next";
+
+// Signed-in app screens: unauthenticated crawls redirect to /login, so keep the
+// whole group out of the index.
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const account = await getSessionAccount();
